@@ -1,6 +1,9 @@
 # Lume — Design Spec
 
-> A personal Markdown workspace for macOS, inspired by Markra's GUI.
+> A personal Markdown workspace for macOS.
+> Inspiration is split deliberately: **MarkEdit** for the editor surface (its
+> styled-source CodeMirror look + native feel) and **Markra** for the sidebar,
+> favorites/tags, multi-format viewing, and three-pane layout.
 > The name evokes light (lumen) — the app is built around a polished light + dark mode.
 > Status: approved design, pre-implementation.
 > Date: 2026-06-02
@@ -12,8 +15,9 @@ four personal needs:
 
 1. **Favorites + metadata** — pin the folders and files I work in (e.g. `.md` files
    created by Claude skills), and attach tags + a free-text info/notes field to them.
-2. **True WYSIWYG Markdown editing** — the Markra feel: type and Markdown renders
-   inline (math, diagrams, tables, code).
+2. **MarkEdit-style Markdown editing** — a styled-source editor (CodeMirror 6): edit
+   the raw Markdown, beautifully highlighted (headings sized, bold/italic styled, code
+   tinted), with native macOS text behavior. Not WYSIWYG — this is the look I prefer.
 3. **`.env` awareness** — recognize and safely view/edit the `.env` files where I
    keep AI coding keys, with value masking.
 4. **Multi-format document viewing** — navigate a real working folder and view
@@ -30,10 +34,11 @@ Explicitly **not** in scope for v1 (intentional cuts, see Decisions):
 
 ## Architecture
 
-A **hybrid native + web** app: a native SwiftUI shell that wraps a web-based editor
-surface for the document itself. This is the deliberate way to get Markra's true
-inline WYSIWYG (which has no good pure-SwiftUI equivalent) while keeping file
-management, favorites, tags, and window chrome fully native.
+A **hybrid native + web** app: a native SwiftUI shell that wraps a CodeMirror 6 editor
+surface for the document itself. This mirrors how MarkEdit is built — CodeMirror 6 in a
+WKWebView for MarkEdit-grade styled-source editing (multi-caret, code folding, GFM
+correctness, performance) — while keeping file management, favorites, tags, multi-format
+viewing, and window chrome fully native (Markra-style).
 
 ### Three-pane layout (Markra-style)
 
@@ -42,7 +47,7 @@ management, favorites, tags, and window chrome fully native.
 │ Library      │ Document surface           │ Info panel   │
 │ (SwiftUI)    │ (router → right viewer)    │ (SwiftUI)    │
 │              │                            │ (toggleable) │
-│ • Favorites  │  .md  → Milkdown WYSIWYG   │ Tags: ...    │
+│ • Favorites  │  .md  → CodeMirror source │ Tags: ...    │
 │ • Tag filter │  .pdf → PDFKit            │ Notes: ...   │
 │ • File tree  │  .docx→ QuickLook         │              │
 └──────────────┴────────────────────────────┴──────────────┘
@@ -53,8 +58,8 @@ management, favorites, tags, and window chrome fully native.
   `.env` files, and the iCloud cowork folder surface here. The tree filters out noise
   (`.DS_Store`, `node_modules`, dotfiles except `.env*`).
 - **Center — Document surface (router):** a `DocumentRouter` picks the right viewer for
-  the selected file — Milkdown WYSIWYG for Markdown, PDFKit for PDF, QuickLook for
-  `.docx`/office/images, WKWebView for HTML, a read-only code view for source files.
+  the selected file — CodeMirror 6 styled-source for Markdown, PDFKit for PDF, QuickLook
+  for `.docx`/office/images, WKWebView for HTML, a read-only code view for source files.
 - **Right — Info panel (SwiftUI, toggleable):** tags + a free-text notes/info field
   bound to the selected file's metadata.
 
@@ -77,7 +82,7 @@ Each component has one clear purpose, a defined interface, and is independently 
    path access, user grants folders via the open panel. Interface returns plain values;
    no UI concerns.
    - `FileKind` detection drives routing:
-     - `.markdown` — `.md`, `.markdown` → editable (Milkdown)
+     - `.markdown` — `.md`, `.markdown` → editable (CodeMirror styled-source)
      - `.env` — `.env`, `.env.*` → editable (code/mask mode)
      - `.pdf` → preview (PDFKit)
      - `.previewable` — `.docx`, other office, images, etc. → preview (QuickLook)
@@ -94,23 +99,24 @@ Each component has one clear purpose, a defined interface, and is independently 
    kinds go to native viewers.
 
 5. **EditorBridge** — the SwiftUI ↔ WKWebView boundary for **editable** docs. Loads text
-   into the web editor, requests current Markdown back, and receives **debounced** change
-   events that trigger a disk write via `FileService`. `WKScriptMessageHandler` +
-   `evaluateJavaScript`.
+   into the CodeMirror editor, requests the current text back, and receives **debounced**
+   change events that trigger a disk write via `FileService`. Also pushes the active
+   color scheme into the editor. `WKScriptMessageHandler` + `evaluateJavaScript`.
 
-6. **PreviewSurface** — native read-only viewers, no JS:
+6. **PreviewSurface** — native read-only viewers, no editor JS:
    - **PDFView** (PDFKit) for `.pdf`.
    - **QLPreviewView** (QuickLook) for `.docx` / office / images / long-tail formats —
      renders without any parsing library.
-   - HTML routes to a plain WKWebView (reusing the web stack, no Milkdown).
+   - HTML routes to a plain WKWebView (a separate, content-only web view — not the
+     CodeMirror editor).
 
 7. **WebEditor (bundled JS)** — a small local web app bundled in app resources (no
-   network). Modes:
-   - **Markdown mode:** Milkdown (ProseMirror-based, Markdown-first) with GFM, math
-     (KaTeX), Mermaid, and code highlighting.
-   - **`.env` code mode:** CodeMirror key=value view with a **mask-values** toggle
-     (dots by default; click a row to reveal/copy).
-   - **read-only code mode:** CodeMirror with syntax highlighting for source files.
+   network), built entirely on **CodeMirror 6** — one engine, three configurations:
+   - **Markdown mode:** styled-source à la MarkEdit — GFM grammar, headings sized,
+     bold/italic styled, code blocks tinted, fenced-code language highlighting.
+   - **`.env` mode:** key=value view with a **mask-values** toggle (dots by default;
+     click a row to reveal/copy).
+   - **read-only code mode:** syntax highlighting for source files, no editing.
 
 8. **InfoPanel** — SwiftUI view editing the selected file's `FileMeta` (tags + notes).
 
@@ -119,7 +125,7 @@ Each component has one clear purpose, a defined interface, and is independently 
 - **Select file:** sidebar → `FileService.detectKind(path)` → `DocumentRouter` picks the
   viewer.
   - editable (`.md` / `.env` / code): `FileService.read` → `EditorBridge.load(text, mode)`
-    → WebEditor renders.
+    → CodeMirror renders in the matching mode.
   - preview (`.pdf` / `.docx` / html / image): `DocumentRouter` hands the file URL to the
     matching `PreviewSurface` viewer (PDFKit / QuickLook / WKWebView).
 - **Edit (editable kinds only):** user types → WebEditor emits a debounced change →
@@ -130,34 +136,48 @@ Each component has one clear purpose, a defined interface, and is independently 
   (works for any kind — you can tag a PDF or docx, not just Markdown).
 - **Filter by tag:** sidebar queries `LibraryStore` for `FileMeta` matching a `Tag`.
 
-## Why Milkdown (not TipTap)
+## Why CodeMirror 6 styled-source (not WYSIWYG)
 
-Both are ProseMirror-based. Milkdown is **Markdown-first** — it round-trips to clean
-`.md` by design, which is exactly the requirement here. TipTap is HTML-first and
-would need fighting to preserve clean Markdown on disk.
+The earlier design used Milkdown for true inline WYSIWYG; this is a deliberate reversal.
+MarkEdit's styled-source look is the preferred feel, and CodeMirror 6 is the same engine
+MarkEdit uses — proven for GFM correctness, multi-caret, code folding, and performance.
+Choosing it also **unifies the entire web surface on one engine**: Markdown, `.env`, and
+read-only code views are all CodeMirror configurations, instead of Milkdown *plus*
+CodeMirror. Simpler, faster, more native — and it edits the canonical `.md` text directly,
+so round-tripping is a non-issue (there is no rich model to serialize).
+
+Inspiration, not copying: MarkEdit is open source (CodeMirror 6 + `ts-gyb`), so its editor
+config and theming are a reference, but Lume's editor setup, bridge, and styling are
+written fresh.
 
 ## Look & feel
 
-Clean, design-forward, and minimal — Markra's aesthetic as the reference: generous
-whitespace, minimal chrome, adjustable writing width / font size / line height.
+Clean, design-forward, and minimal. Two references, split by area: **MarkEdit** sets the
+editor surface — calm, typographic styled-source Markdown with native macOS text behavior;
+**Markra** sets the shell — generous whitespace, minimal chrome, adjustable writing width /
+font size / line height, and the three-pane layout.
 
 **Light + dark mode is a first-class design pillar, not an afterthought** (the name
 "Lume" leans into it). The native shell uses standard macOS materials so it feels at
-home and follows the system appearance automatically; the WKWebView surface is themed
-in lockstep — the SwiftUI side pushes the active color scheme into the web editor so
-the document never flashes the wrong theme. Both themes are hand-tuned (typographic
-contrast, code/diagram palettes) rather than auto-inverted.
+home and follows the system appearance automatically; the CodeMirror surface is themed
+in lockstep — the SwiftUI side pushes the active color scheme into the editor so the
+document never flashes the wrong theme. Both themes are hand-tuned (Markdown syntax
+styling, code highlighting palettes) rather than auto-inverted.
 
 ## Decisions (with rationale)
 
-- **Hybrid native+web, not pure SwiftUI** — true inline WYSIWYG Markdown has no good
-  native library; embedding Milkdown in a WKWebView is the pragmatic, proven path.
+- **CodeMirror 6 styled-source, not WYSIWYG** — matches MarkEdit's preferred look,
+  unifies the whole web surface on one engine, edits canonical `.md` directly. (Reverses
+  an earlier WYSIWYG/Milkdown choice.)
+- **Hybrid native+web, not pure SwiftUI** — MarkEdit-grade styled-source editing is best
+  done in CodeMirror 6 inside a WKWebView, exactly as MarkEdit does it.
 - **PDFKit + QuickLook for non-Markdown viewing** — native, free, and gorgeous;
   QuickLook renders `.docx`/office/long-tail formats with zero parsing libraries. This
   keeps multi-format viewing "simple but premium" instead of pulling in a docx parser.
 - **Preview formats are read-only in v1** — viewing PDFs/docx/html is the need; editing
   them is out of scope (and `.docx` editing would mean a heavy dependency).
-- **Milkdown for the editor** — Markdown-first round-tripping.
+- **No rendered Markdown preview in v1** — the styled-source surface is the experience;
+  inline KaTeX/Mermaid rendering would require a separate preview pane (parked as later).
 - **SwiftData for metadata** — modern native persistence; files stay untouched on disk.
 - **App sandbox OFF (v1)** — personal tool; avoids the security-scoped-bookmark dance.
   Revisit only if App Store distribution is ever wanted.
@@ -175,11 +195,13 @@ Swift Testing for the native core:
 - `.env` parsing + masking logic (key=value split, reveal/mask state).
 - `EditorBridge` — light smoke test of the load/change/write loop.
 
-Manual verification for v1: Milkdown rendering (math/mermaid/tables), and opening the
+Manual verification for v1: CodeMirror Markdown styling in light + dark, and opening the
 real iCloud cowork folder to confirm PDF/docx/html render and iCloud download works.
 
 ## Out of scope for v1 (possible later)
 
+- Rendered Markdown preview pane (split live-preview with KaTeX math + Mermaid diagrams),
+  toggleable beside the styled-source editor — like MarkEdit's preview extension.
 - AI side panel (polish / rewrite / continue / summarize / translate).
 - Encrypted key vault with Keychain / Touch ID.
 - App sandboxing + security-scoped bookmarks.
