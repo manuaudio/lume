@@ -1,6 +1,7 @@
-# Markeep — Design Spec
+# Lume — Design Spec
 
-> Working name. A personal Markdown workspace for macOS, inspired by Markra's GUI.
+> A personal Markdown workspace for macOS, inspired by Markra's GUI.
+> The name evokes light (lumen) — the app is built around a polished light + dark mode.
 > Status: approved design, pre-implementation.
 > Date: 2026-06-02
 
@@ -100,9 +101,15 @@ would need fighting to preserve clean Markdown on disk.
 
 ## Look & feel
 
-Mirror Markra's aesthetic: generous whitespace, minimal chrome, adjustable writing
-width / font size / line height, light + dark themes. The native shell uses standard
-macOS materials so it feels at home; the web surface is styled to match.
+Clean, design-forward, and minimal — Markra's aesthetic as the reference: generous
+whitespace, minimal chrome, adjustable writing width / font size / line height.
+
+**Light + dark mode is a first-class design pillar, not an afterthought** (the name
+"Lume" leans into it). The native shell uses standard macOS materials so it feels at
+home and follows the system appearance automatically; the WKWebView surface is themed
+in lockstep — the SwiftUI side pushes the active color scheme into the web editor so
+the document never flashes the wrong theme. Both themes are hand-tuned (typographic
+contrast, code/diagram palettes) rather than auto-inverted.
 
 ## Decisions (with rationale)
 
