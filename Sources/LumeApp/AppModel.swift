@@ -3,29 +3,42 @@ import SwiftData
 import Observation
 import LumeCore
 
-/// Observable app state shared across the three panes.
-enum SidebarMode: String, CaseIterable, Identifiable {
-    case favorites, browse
-    var id: String { rawValue }
-    var label: String { self == .favorites ? "Favorites" : "Browse" }
-    var systemImage: String { self == .favorites ? "star" : "folder" }
-}
-
 @MainActor
 @Observable
 final class AppModel {
     var rootFolder: URL?
     var tree: [FileNode] = []
     var selectedFile: URL?
-    var showInfoPanel = true
     var activeTagFilter: String?
-    var sidebarMode: SidebarMode = .browse
+
+    // Browser
+    var browseRoot: URL? { didSet { persistBrowseRoot() } }
+    var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
+    var expandedPaths: Set<String> = []
+    var selectedRowID: String?
+
+    // Inline editing (which row is mid-edit)
+    var renamingPath: String?
+    var notesOpenPath: String?
 
     /// Injected once from `ContentView` so toolbar/sidebar actions can reach
     /// the SwiftData store without each view re-deriving it.
     @ObservationIgnored var libraryContext: ModelContext?
 
     @ObservationIgnored let files: FileServicing = FileService()
+
+    init() {
+        filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
+        if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
+            browseRoot = URL(fileURLWithPath: p)
+        } else {
+            browseRoot = FileManager.default.homeDirectoryForCurrentUser
+        }
+    }
+
+    private func persistBrowseRoot() {
+        UserDefaults.standard.set(browseRoot?.path, forKey: "lume.browseRoot")
+    }
 
     // MARK: Folder navigation
 
@@ -101,13 +114,37 @@ final class AppModel {
         }
     }
 
+    // MARK: Browser drill navigation
+
+    func drillInto(_ url: URL) {
+        browseRoot = url
+        expandedPaths.removeAll()
+    }
+
+    /// `cd ..` — stops at filesystem root.
+    func drillUp() {
+        guard let root = browseRoot else { return }
+        let parent = root.deletingLastPathComponent()
+        if parent.path != root.path { browseRoot = parent }
+    }
+
+    // MARK: Pins (unified — a pin IS a favorite, file or folder)
+
+    func isPinned(_ url: URL) -> Bool { isFavorite(url) }
+
+    func togglePin(_ url: URL, isDirectory: Bool) {
+        toggleFavorite(url, isDirectory: isDirectory)
+    }
+
     /// Open a folder (and optionally select a file) from environment variables,
     /// so Lume can be launched pointed at a location:
     ///   LUME_OPEN_FOLDER=/path/to/dir  LUME_OPEN_FILE=/path/to/dir/file.md
     func applyLaunchEnvironment() {
         let env = ProcessInfo.processInfo.environment
         if let folder = env["LUME_OPEN_FOLDER"], !folder.isEmpty {
-            openFolder(URL(fileURLWithPath: folder))
+            let url = URL(fileURLWithPath: folder)
+            openFolder(url)
+            browseRoot = url
         }
         if let file = env["LUME_OPEN_FILE"], !file.isEmpty {
             selectedFile = URL(fileURLWithPath: file)
