@@ -57,29 +57,34 @@ struct SidebarItemRow: View {
     private var isRenaming: Bool { model.renamingPath == url.path }
 
     var body: some View {
-        HStack(spacing: 6) {
-            if isDirectory {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .frame(width: 12)
-                    .onTapGesture { model.toggleExpanded(url) }
-            } else {
-                Spacer().frame(width: 12)
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if isDirectory {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(width: 12)
+                        .onTapGesture { model.toggleExpanded(url) }
+                } else {
+                    Spacer().frame(width: 12)
+                }
 
-            if isRenaming {
-                RenameField(url: url, model: model)
-            } else if isDirectory {
-                Label(names[url.path] ?? url.lastPathComponent,
-                      systemImage: section == .pinned ? "folder.fill" : "folder")
-                    .foregroundStyle(section == .pinned ? .yellow : .primary)
-                    .lineLimit(1)
-            } else {
-                FileRow(url: url,
-                        kind: FileKind.detect(filename: url.lastPathComponent),
-                        name: names[url.path])
+                if isRenaming {
+                    RenameField(url: url, model: model)
+                } else if isDirectory {
+                    Label(names[url.path] ?? url.lastPathComponent,
+                          systemImage: section == .pinned ? "folder.fill" : "folder")
+                        .foregroundStyle(section == .pinned ? .yellow : .primary)
+                        .lineLimit(1)
+                } else {
+                    FileRow(url: url,
+                            kind: FileKind.detect(filename: url.lastPathComponent),
+                            name: names[url.path])
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            if !isDirectory, model.selectedFile == url, !isRenaming {
+                RowMetaView(url: url, model: model)
+            }
         }
         .padding(.leading, CGFloat(depth) * 12)
         .contentShape(Rectangle())
@@ -195,5 +200,67 @@ struct RenameField: View {
                       tagNames: meta?.tags.map(\.name) ?? [],
                       displayName: trimmed == url.lastPathComponent ? "" : trimmed)
         model.renamingPath = nil
+    }
+}
+
+/// Tag chips + collapsible notes for the selected file, shown beneath its row.
+struct RowMetaView: View {
+    let url: URL
+    let model: AppModel
+
+    @Environment(\.modelContext) private var context
+    @State private var tagsText = ""
+    @State private var notes = ""
+    @State private var loaded = false
+
+    private var notesOpen: Bool { model.notesOpenPath == url.path }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                TextField("add tags (comma-separated)", text: $tagsText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .onSubmit { save() }
+                Button {
+                    model.notesOpenPath = notesOpen ? nil : url.path
+                } label: {
+                    Image(systemName: notesOpen ? "note.text" : "note.text.badge.plus")
+                }
+                .buttonStyle(.borderless)
+                .help("Notes")
+            }
+            if notesOpen {
+                TextField("Notes…", text: $notes, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .lineLimit(3...8)
+                    .padding(6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                    .onChange(of: notes) { _, _ in save() }   // autosave
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.vertical, 2)
+        .onAppear(perform: load)
+        .onChange(of: url) { _, _ in loaded = false; load() }
+    }
+
+    private func load() {
+        guard !loaded else { return }
+        let store = LibraryStore(context: context)
+        let meta = store.meta(for: url.path)
+        tagsText = meta?.tags.map(\.name).joined(separator: ", ") ?? ""
+        notes = meta?.info ?? ""
+        loaded = true
+    }
+
+    private func save() {
+        let store = LibraryStore(context: context)
+        let tagNames = tagsText.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        store.setMeta(path: url.path, info: notes, tagNames: tagNames,
+                      displayName: store.displayName(for: url.path) ?? "")
     }
 }
