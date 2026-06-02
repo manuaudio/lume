@@ -63,6 +63,9 @@ struct ContentView: View {
             model.seedDefaultBookmarksIfNeeded()
             model.applyLaunchEnvironment()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeOpenFolder)) { _ in
+            openFolderPanel()
+        }
         .onChange(of: model.selectedFile) { _, _ in
             refreshFavoriteState()
         }
@@ -79,6 +82,7 @@ struct ContentView: View {
         panel.message = "Choose a folder to work in"
         if panel.runModal() == .OK, let url = panel.url {
             model.openFolder(url)
+            model.sidebarMode = .browse
         }
     }
 
