@@ -10,6 +10,8 @@ struct SidebarView: View {
     @Query(sort: \Tag.name) private var tags: [Tag]
     @Query private var allMeta: [FileMeta]
 
+    @FocusState private var filterFocused: Bool
+
     /// path → custom display name (non-empty only), kept reactive via @Query.
     private var names: [String: String] {
         Dictionary(uniqueKeysWithValues:
@@ -20,6 +22,10 @@ struct SidebarView: View {
         Binding(get: { model.selectedRowID }, set: { model.selectedRowID = $0 })
     }
 
+    private var filter: Binding<String> {
+        Binding(get: { model.browseFilter }, set: { model.browseFilter = $0 })
+    }
+
     var body: some View {
         List(selection: selection) {
             pinnedSection
@@ -27,25 +33,78 @@ struct SidebarView: View {
             browserSection
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .top) { filesOnlyBar }
+        .safeAreaInset(edge: .top) { topBar }
         .onChange(of: model.selectedRowID) { _, id in openIfFile(id) }
+        // List-scoped keys: these only fire when the List — not a text field —
+        // is first responder, so they never interfere with the filter/rename/
+        // notes editors. Each returns `.handled` only when it acts.
+        .onKeyPress(.init("/")) { filterFocused = true; return .handled }
+        .onKeyPress(.space) {
+            guard let id = model.selectedRowID,
+                  let row = SidebarRow.decode(id), !row.isDirectory else { return .ignored }
+            QuickLook.shared.show(row.url)
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            guard let id = model.selectedRowID,
+                  let row = SidebarRow.decode(id), row.isDirectory else { return .ignored }
+            model.expandedPaths.insert(row.url.path)
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            guard let id = model.selectedRowID,
+                  let row = SidebarRow.decode(id), row.isDirectory,
+                  model.expandedPaths.contains(row.url.path) else { return .ignored }
+            model.expandedPaths.remove(row.url.path)
+            return .handled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in
+            filterFocused = true
+        }
     }
 
-    // MARK: Files-only toggle
+    // MARK: Top bar — filter field + files-only toggle
 
-    private var filesOnlyBar: some View {
-        HStack {
-            Toggle(isOn: Binding(get: { model.filesOnly },
-                                 set: { model.filesOnly = $0 })) {
-                Label("Files only", systemImage: "doc")
+    private var topBar: some View {
+        VStack(spacing: 6) {
+            filterField
+            HStack {
+                Toggle(isOn: Binding(get: { model.filesOnly },
+                                     set: { model.filesOnly = $0 })) {
+                    Label("Files only", systemImage: "doc")
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                Spacer()
             }
-            .toggleStyle(.button)
-            .controlSize(.small)
-            Spacer()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Filter…", text: filter)
+                .textFieldStyle(.plain)
+                .focused($filterFocused)
+            if !model.browseFilter.isEmpty {
+                Button {
+                    model.browseFilter = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Clear filter")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
     }
 
     // MARK: Pinned

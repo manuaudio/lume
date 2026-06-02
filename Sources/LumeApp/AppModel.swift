@@ -16,6 +16,7 @@ final class AppModel {
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
     var expandedPaths: Set<String> = []
     var selectedRowID: String?
+    var browseFilter: String = ""
 
     // Inline editing (which row is mid-edit)
     var renamingPath: String?

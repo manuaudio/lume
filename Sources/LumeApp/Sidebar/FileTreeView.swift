@@ -35,6 +35,9 @@ struct FileTreeView: View {
             // Keep directories (so you can navigate into them) + tagged files.
             nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
+        if !model.browseFilter.isEmpty {
+            nodes = nodes.filter { $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
+        }
         return nodes
     }
 

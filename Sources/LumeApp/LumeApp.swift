@@ -9,6 +9,7 @@ extension Notification.Name {
     static let lumePin         = Notification.Name("lumePin")
     static let lumeDrillUp     = Notification.Name("lumeDrillUp")
     static let lumeOpenOrDrill = Notification.Name("lumeOpenOrDrill")
+    static let lumeFocusFilter = Notification.Name("lumeFocusFilter")
 }
 
 /// Forces the SPM executable to behave like a regular foreground GUI app.
@@ -82,6 +83,11 @@ struct LumeApp: App {
                     post(.lumeDrillUp)
                 }
                 .keyboardShortcut(.upArrow, modifiers: .command)
+
+                Button("Find in Sidebar") {
+                    post(.lumeFocusFilter)
+                }
+                .keyboardShortcut("f", modifiers: .command)
 
                 Divider()
 
