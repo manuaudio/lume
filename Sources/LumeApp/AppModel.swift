@@ -121,6 +121,11 @@ final class AppModel {
         expandedPaths.removeAll()
     }
 
+    func toggleExpanded(_ url: URL) {
+        if expandedPaths.contains(url.path) { expandedPaths.remove(url.path) }
+        else { expandedPaths.insert(url.path) }
+    }
+
     /// `cd ..` — stops at filesystem root.
     func drillUp() {
         guard let root = browseRoot else { return }

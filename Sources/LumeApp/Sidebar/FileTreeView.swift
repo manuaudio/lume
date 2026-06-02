@@ -25,7 +25,6 @@ struct FileTreeView: View {
         }
         .onAppear { reload() }
         .onChange(of: parent) { _, _ in reload() }
-        .onChange(of: model.filesOnly) { _, _ in /* filter is derived, just refresh view */ }
     }
 
     private var visibleChildren: [FileNode] {
@@ -63,7 +62,7 @@ struct SidebarItemRow: View {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.caption2).foregroundStyle(.secondary)
                     .frame(width: 12)
-                    .onTapGesture { toggleExpand() }
+                    .onTapGesture { model.toggleExpanded(url) }
             } else {
                 Spacer().frame(width: 12)
             }
@@ -84,14 +83,13 @@ struct SidebarItemRow: View {
         }
         .padding(.leading, CGFloat(depth) * 12)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if isDirectory { model.drillInto(url) } }
-        .onTapGesture(count: 1) { if isDirectory { toggleExpand() } else { model.selectedFile = url } }
+        .onTapGesture(count: 2) {
+            guard isDirectory else { return }
+            model.expandedPaths.remove(url.path)   // undo the single-tap's pending expand
+            model.drillInto(url)
+        }
+        .onTapGesture(count: 1) { if isDirectory { model.toggleExpanded(url) } else { model.selectedFile = url } }
         .contextMenu { RowMenu(url: url, isDirectory: isDirectory, model: model) }
-    }
-
-    private func toggleExpand() {
-        if isExpanded { model.expandedPaths.remove(url.path) }
-        else { model.expandedPaths.insert(url.path) }
     }
 }
 
@@ -144,7 +142,7 @@ struct RowMenu: View {
     var body: some View {
         if isDirectory {
             Button("Open", systemImage: "arrow.right.circle") { model.drillInto(url) }
-            Button("Expand / Collapse", systemImage: "chevron.right") { toggleExpand() }
+            Button("Expand / Collapse", systemImage: "chevron.right") { model.toggleExpanded(url) }
         } else {
             Button("Open", systemImage: "doc.text") { model.selectedFile = url }
         }
@@ -162,11 +160,6 @@ struct RowMenu: View {
         Button("Reveal in Finder", systemImage: "magnifyingglass") {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
-    }
-
-    private func toggleExpand() {
-        if model.expandedPaths.contains(url.path) { model.expandedPaths.remove(url.path) }
-        else { model.expandedPaths.insert(url.path) }
     }
 }
 
@@ -189,7 +182,7 @@ struct RenameField: View {
             }
             .onSubmit { commit() }
             .onExitCommand { model.renamingPath = nil }   // Esc cancels
-            .onChange(of: focused) { _, f in if !f { commit() } }
+            .onChange(of: focused) { _, f in if !f && model.renamingPath == url.path { commit() } }
     }
 
     private func commit() {

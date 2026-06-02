@@ -125,17 +125,7 @@ struct SidebarView: View {
     // MARK: Selection → open files
 
     private func openIfFile(_ id: String?) {
-        guard let id, let row = decode(id), !row.isDirectory else { return }
+        guard let id, let row = SidebarRow.decode(id), !row.isDirectory else { return }
         model.selectedFile = row.url
-    }
-
-    /// "section|/path" → (url, isDirectory) without needing the source list.
-    private func decode(_ id: String) -> (url: URL, isDirectory: Bool)? {
-        guard let bar = id.firstIndex(of: "|") else { return nil }
-        let path = String(id[id.index(after: bar)...])
-        let url = URL(fileURLWithPath: path)
-        var isDir: ObjCBool = false
-        FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
-        return (url, isDir.boolValue)
     }
 }
