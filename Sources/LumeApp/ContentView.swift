@@ -45,6 +45,10 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .lumeOpenFolder)) { _ in
             openFolderPanel()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeRename)) { _ in model.renameSelected() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumePin)) { _ in model.pinSelected() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeDrillUp)) { _ in model.drillUp() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeOpenOrDrill)) { _ in model.openOrDrillSelected() }
         .onChange(of: model.selectedFile) { _, _ in
             refreshFavoriteState()
         }

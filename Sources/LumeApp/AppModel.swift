@@ -179,6 +179,31 @@ final class AppModel {
         try? files.write(text, to: url)
     }
 
+    // MARK: Selected-row helpers (for keyboard commands)
+
+    /// The URL of the currently selected row (file or folder).
+    var selectedRowURL: URL? {
+        guard let id = selectedRowID else { return nil }
+        return SidebarRow.decode(id)?.url
+    }
+
+    private var selectedRowIsDirectory: Bool {
+        guard let id = selectedRowID else { return false }
+        return SidebarRow.decode(id)?.isDirectory ?? false
+    }
+
+    func renameSelected() { renamingPath = selectedRowURL?.path }
+
+    func pinSelected() {
+        guard let url = selectedRowURL else { return }
+        togglePin(url, isDirectory: selectedRowIsDirectory)
+    }
+
+    func openOrDrillSelected() {
+        guard let url = selectedRowURL else { return }
+        if selectedRowIsDirectory { drillInto(url) } else { selectedFile = url }
+    }
+
     // MARK: Derived
 
     var selectedKind: FileKind? {
