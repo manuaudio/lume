@@ -1294,6 +1294,143 @@ git commit -m "chore: sidebar UX redesign regression pass"
 
 ---
 
+## Task 16: Sidebar filter field + list-scoped keys (`/`, `⌘F`, `→/←`)
+
+**Files:**
+- Modify: `Sources/LumeApp/AppModel.swift` (add `browseFilter`)
+- Modify: `Sources/LumeApp/Sidebar/SidebarView.swift` (filter field, `@FocusState`, `.onKeyPress` handlers)
+- Modify: `Sources/LumeApp/Sidebar/FileTreeView.swift` (apply name filter in `visibleChildren`)
+- Modify: `Sources/LumeApp/LumeApp.swift` (`⌘F` Find command + `.lumeFocusFilter` notification)
+- Modify: `Sources/LumeApp/ContentView.swift` (observe `.lumeFocusFilter`)
+
+Added after initial execution: the design spec's keyboard map (`/` focus filter, `→/←` expand/collapse) plus a real filter field, which the original Task 12 did not cover. Bare `/` and arrow keys must NOT be global command shortcuts (they would break typing in the rename/notes/tags/filter fields). Instead they are handled by `.onKeyPress` on the sidebar `List`, which only fires when the list — not a text field — is the first responder. `⌘F` is added as a reliable, discoverable menu command that focuses the filter.
+
+- [ ] **Step 1: Add filter state to AppModel**
+
+In `AppModel`, add near the browser state:
+
+```swift
+    var browseFilter: String = ""
+```
+
+- [ ] **Step 2: Apply the name filter in `FileTreeView.visibleChildren`**
+
+In `Sources/LumeApp/Sidebar/FileTreeView.swift`, in `visibleChildren`, after the existing `filesOnly` and `activeTagFilter` filtering, add a name filter:
+
+```swift
+        if !model.browseFilter.isEmpty {
+            nodes = nodes.filter { $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
+        }
+```
+
+(Applied at every tree level, so a non-empty filter narrows each expanded folder's visible rows by name.)
+
+- [ ] **Step 3: Add the filter field + scoped keys to SidebarView**
+
+In `SidebarView`, add `@FocusState private var filterFocused: Bool`. Put a filter `TextField` in the `filesOnlyBar` (or a sibling bar) bound to a `browseFilter` binding, `.focused($filterFocused)`. Attach scoped key handlers to the `List` (they return `.handled` only when they act, else `.ignored`):
+
+```swift
+        .onKeyPress(.init("/")) { filterFocused = true; return .handled }
+        .onKeyPress(.space) {
+            guard let url = model.selectedRowURL, !(SidebarRow.decode(model.selectedRowID ?? "")?.isDirectory ?? true)
+            else { return .ignored }
+            QuickLook.shared.show(url)            // defined in Task 17
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            guard let url = model.selectedRowURL,
+                  SidebarRow.decode(model.selectedRowID ?? "")?.isDirectory == true else { return .ignored }
+            model.expandedPaths.insert(url.path); return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            guard let url = model.selectedRowURL,
+                  SidebarRow.decode(model.selectedRowID ?? "")?.isDirectory == true,
+                  model.expandedPaths.contains(url.path) else { return .ignored }
+            model.expandedPaths.remove(url.path); return .handled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in filterFocused = true }
+```
+
+Add the `browseFilter` binding helper mirroring the existing `mode`/`selection` bindings:
+
+```swift
+    private var filter: Binding<String> {
+        Binding(get: { model.browseFilter }, set: { model.browseFilter = $0 })
+    }
+```
+
+- [ ] **Step 4: Add the `⌘F` Find command**
+
+In `LumeApp.swift`, add `static let lumeFocusFilter = Notification.Name("lumeFocusFilter")` to the extension, and add to the `CommandMenu("Navigate")` (or a `CommandGroup(after: .textEditing)`):
+
+```swift
+                Button("Find in Sidebar") { post(.lumeFocusFilter) }
+                    .keyboardShortcut("f", modifiers: .command)
+```
+
+In `ContentView`, add `.onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in NotificationCenter.default.post(name: .lumeFocusFilter, object: nil) }` is NOT needed — SidebarView observes `.lumeFocusFilter` directly (Step 3). Just ensure the notification name exists.
+
+- [ ] **Step 5: Build, run, commit**
+
+Build clean, launch, confirm no crash. Note that `.onKeyPress` interactions can't be screenshot-verified headlessly — confirm compile + launch and reason about correctness.
+
+```bash
+git commit -am "feat(app): sidebar filter field + scoped keys (/ ⌘F →/←)"
+```
+
+---
+
+## Task 17: Quick Look on Space
+
+**Files:**
+- Create: `Sources/LumeApp/Document/QuickLook.swift`
+
+A shared Quick Look controller so `Space` (handled in Task 16's `.onKeyPress`) previews the selected file with the native panel.
+
+- [ ] **Step 1: Create the controller**
+
+```swift
+import AppKit
+import QuickLookUI
+
+/// Shared Quick Look panel controller. `show(_:)` previews a file URL with the
+/// native QLPreviewPanel (same as Finder's Space-bar preview).
+final class QuickLook: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    static let shared = QuickLook()
+    private var url: URL?
+
+    func show(_ url: URL) {
+        self.url = url
+        guard let panel = QLPreviewPanel.shared() else { return }
+        panel.dataSource = self
+        panel.delegate = self
+        if panel.isVisible {
+            panel.reloadData()
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel) -> Int { url == nil ? 0 : 1 }
+
+    func previewPanel(_ panel: QLPreviewPanel, previewItemAt index: Int) -> QLPreviewItem {
+        (url as NSURL?) ?? (URL(fileURLWithPath: "/") as NSURL)
+    }
+}
+```
+
+If `import QuickLookUI` is unavailable on the toolchain, use `import Quartz` instead (QLPreviewPanel ships in both). Confirm whichever compiles.
+
+- [ ] **Step 2: Build, run, commit**
+
+Build clean. Launch and confirm no crash. (The panel's visual appearance can't be verified headlessly; confirm the file compiles, links the framework, and the app launches.) If the shared-panel approach does not display without responder-chain control on this macOS version, report it — a fallback is an `NSViewRepresentable` that implements `acceptsPreviewPanelControl`.
+
+```bash
+git commit -am "feat(app): Quick Look selected file with Space"
+```
+
+---
+
 ## Self-Review (completed by plan author)
 
 **Spec coverage:** Two-pane (T6) · unified sidebar/no toggle (T7) · pinned files+folders/merge with bookmarks (T1, T7, T13) · tags as live filters (T2, T7, T11) · breadcrumb + drill `cd ..` (T3, T7, T4) · single-click expand / double-click drill (T8) · files-only toggle (T4, T7, T8) · inline rename (T10) · inline tags + notes autosave (T11) · right-click menu (T9) · keyboard map (T12) · bookmark→pin migration + seed (T1, T13) · Cowork detect-and-label (T14). All spec sections map to tasks.
