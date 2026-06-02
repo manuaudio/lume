@@ -9,23 +9,25 @@ struct ContentView: View {
 
     @State private var isFavorited = false
 
-    private var showInfo: Binding<Bool> {
-        Binding(get: { model.showInfoPanel }, set: { model.showInfoPanel = $0 })
-    }
-
     var body: some View {
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 290, max: 420)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
-            DocumentSurfaceView(model: model)
-                .frame(minWidth: 260, minHeight: 280)
-                // Native inspector: a collapsible trailing panel that resizes
-                // gracefully and never chops the document at narrow widths.
-                .inspector(isPresented: showInfo) {
+            // Controlled HStack instead of `.inspector`: the document pane is
+            // flexible and the info panel a fixed trailing width, so the layout
+            // always compresses to fit the window — no overflow/clipping when
+            // the window isn't maximized.
+            HStack(spacing: 0) {
+                DocumentSurfaceView(model: model)
+                    .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
+                if model.showInfoPanel {
+                    Divider()
                     InfoPanelView(model: model)
-                        .inspectorColumnWidth(min: 200, ideal: 260, max: 360)
+                        .frame(width: 264)
+                        .frame(maxHeight: .infinity)
                 }
+            }
         }
         .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
         .toolbar {

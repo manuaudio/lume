@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Persist window size/position across launches (friendly native behavior).
+        DispatchQueue.main.async {
+            NSApp.windows.first?.setFrameAutosaveName("LumeMainWindow")
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -24,7 +28,7 @@ struct LumeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 720, minHeight: 440)
+                .frame(minWidth: 820, minHeight: 460)
         }
         .modelContainer(for: [Favorite.self, Tag.self, FileMeta.self, Bookmark.self])
         .windowStyle(.titleBar)

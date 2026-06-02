@@ -70,6 +70,12 @@ struct DirectoryRow: View {
         .onChange(of: isExpanded) { _, expanded in
             if expanded, children == nil { children = model.children(of: node) }
         }
+        // SwiftUI may reuse this row (and its cached children) for a DIFFERENT
+        // folder when the list changes — drop the stale cache if the URL changes.
+        .onChange(of: node.url) { _, _ in
+            children = nil
+            isExpanded = false
+        }
     }
 }
 
@@ -94,6 +100,10 @@ struct FavoriteFolderRow: View {
         }
         .onChange(of: isExpanded) { _, expanded in
             if expanded, children == nil { children = model.children(of: url) }
+        }
+        .onChange(of: url) { _, _ in
+            children = nil
+            isExpanded = false
         }
     }
 }

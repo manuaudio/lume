@@ -18,7 +18,20 @@ struct SidebarView: View {
         // List holds rows directly (NO Section header): on macOS `.sidebar`
         // style, section headers get a negative leading inset and clip long
         // text. Mini-headers below are plain rows we fully control.
+        // The mode picker is the FIRST LIST ROW (not a safeAreaInset): list rows
+        // lay out correctly at every window size, whereas a sidebar safeAreaInset
+        // mis-positions its content (shifting left/clipping) when not maximized.
         List {
+            Picker("View", selection: mode) {
+                ForEach(SidebarMode.allCases) { m in
+                    Text(m.label).tag(m)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .listRowSeparator(.hidden)
+            .padding(.vertical, 4)
+
             if model.sidebarMode == .favorites {
                 favoritesContent
             } else {
@@ -26,23 +39,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                Picker("View", selection: mode) {
-                    ForEach(SidebarMode.allCases) { m in
-                        Text(m.label).tag(m)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.bar)
-            .overlay(alignment: .bottom) { Divider() }
-        }
     }
 
     // MARK: Browse — Finder-style Locations (whole filesystem, expandable)
@@ -51,6 +47,7 @@ struct SidebarView: View {
         groupHeader("Locations")
         ForEach(bookmarks) { bm in
             FavoriteFolderRow(url: URL(fileURLWithPath: bm.path), model: model)
+                .id(bm.path)
         }
         .onMove { indices, newOffset in
             var paths = bookmarks.map(\.path)
@@ -59,6 +56,7 @@ struct SidebarView: View {
         }
         if let root = model.rootFolder, !bookmarks.contains(where: { $0.path == root.path }) {
             FavoriteFolderRow(url: root, model: model)
+                .id(root.path)
         }
         if bookmarks.isEmpty && model.rootFolder == nil {
             Text("Use ⌘O or the folder button to open a location.")
@@ -90,6 +88,7 @@ struct SidebarView: View {
                 let url = URL(fileURLWithPath: fav.path)
                 if fav.kindRaw == "folder" {
                     FavoriteFolderRow(url: url, model: model)
+                        .id(fav.path)
                 } else {
                     FileLeafRow(url: url, model: model)
                 }
