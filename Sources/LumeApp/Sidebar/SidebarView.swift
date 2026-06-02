@@ -38,6 +38,7 @@ struct SidebarView: View {
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
         // notes editors. Each returns `.handled` only when it acts.
+        .background(QLHost(controller: QuickLook.shared))
         .onKeyPress(.init("/")) { filterFocused = true; return .handled }
         .onKeyPress(.space) {
             guard let id = model.selectedRowID,
@@ -91,6 +92,7 @@ struct SidebarView: View {
             TextField("Filter…", text: filter)
                 .textFieldStyle(.plain)
                 .focused($filterFocused)
+                .onExitCommand { filterFocused = false }
             if !model.browseFilter.isEmpty {
                 Button {
                     model.browseFilter = ""

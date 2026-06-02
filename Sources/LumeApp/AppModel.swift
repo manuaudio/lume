@@ -122,6 +122,7 @@ final class AppModel {
     func drillInto(_ url: URL) {
         browseRoot = url
         expandedPaths.removeAll()
+        browseFilter = ""
     }
 
     func toggleExpanded(_ url: URL) {
