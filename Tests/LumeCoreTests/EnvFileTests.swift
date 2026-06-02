@@ -21,6 +21,15 @@ import Testing
     #expect(lines == [.entry(EnvEntry(key: "URL", value: "https://x.com/a=b"))])
 }
 
+@Test func stripsSurroundingQuotesAndExportPrefix() {
+    #expect(EnvFile.parse(#"A="hello""#) == [.entry(EnvEntry(key: "A", value: "hello"))])
+    #expect(EnvFile.parse("B='hello world'") == [.entry(EnvEntry(key: "B", value: "hello world"))])
+    #expect(EnvFile.parse("C=bare-value") == [.entry(EnvEntry(key: "C", value: "bare-value"))])
+    #expect(EnvFile.parse("export D=val") == [.entry(EnvEntry(key: "D", value: "val"))])
+    // A single trailing-only quote is left untouched.
+    #expect(EnvFile.parse(#"E=oops""#) == [.entry(EnvEntry(key: "E", value: #"oops""#))])
+}
+
 @Test func masksValueWithDotsCappedAtTwentyFour() {
     #expect(EnvFile.mask("secret") == "••••••")          // 6
     #expect(EnvFile.mask("") == "")

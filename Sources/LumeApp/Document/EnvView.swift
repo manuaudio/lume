@@ -106,6 +106,8 @@ private struct EnvRow: View {
     let onToggle: () -> Void
     let onCopy: () -> Void
 
+    private var isEmpty: Bool { entry.value.isEmpty }
+
     var body: some View {
         HStack(spacing: 12) {
             Text(entry.key)
@@ -114,23 +116,33 @@ private struct EnvRow: View {
 
             Spacer(minLength: 16)
 
-            Text(isRevealed ? (entry.value.isEmpty ? "—" : entry.value) : EnvFile.mask(entry.value))
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if isEmpty {
+                // Nothing to reveal — make that explicit instead of showing a
+                // blank row with a dead eye button.
+                Text("not set")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .italic()
+            } else {
+                Text(isRevealed ? entry.value : EnvFile.mask(entry.value))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
 
-            Button(isRevealed ? "Hide value" : "Reveal value",
-                   systemImage: isRevealed ? "eye.slash" : "eye",
-                   action: onToggle)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help(isRevealed ? "Hide value" : "Reveal value")
+                Button(isRevealed ? "Hide value" : "Reveal value",
+                       systemImage: isRevealed ? "eye.slash" : "eye",
+                       action: onToggle)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(isRevealed ? "Hide value" : "Reveal value")
 
-            Button("Copy value", systemImage: "doc.on.doc", action: onCopy)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Copy value")
+                Button("Copy value", systemImage: "doc.on.doc", action: onCopy)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Copy value")
+            }
         }
         .padding(.vertical, 4)
     }

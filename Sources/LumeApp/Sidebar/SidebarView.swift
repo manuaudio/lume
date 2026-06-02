@@ -52,6 +52,11 @@ struct SidebarView: View {
         ForEach(bookmarks) { bm in
             FavoriteFolderRow(url: URL(fileURLWithPath: bm.path), model: model)
         }
+        .onMove { indices, newOffset in
+            var paths = bookmarks.map(\.path)
+            paths.move(fromOffsets: indices, toOffset: newOffset)
+            model.store?.reorderBookmarks(paths)
+        }
         if let root = model.rootFolder, !bookmarks.contains(where: { $0.path == root.path }) {
             FavoriteFolderRow(url: root, model: model)
         }
@@ -88,6 +93,11 @@ struct SidebarView: View {
                 } else {
                     FileLeafRow(url: url, model: model)
                 }
+            }
+            .onMove { indices, newOffset in
+                var paths = favorites.map(\.path)
+                paths.move(fromOffsets: indices, toOffset: newOffset)
+                model.store?.reorderFavorites(paths)
             }
         }
     }

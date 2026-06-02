@@ -28,8 +28,13 @@ public enum EnvFile {
             if trimmed.isEmpty { return .blank }
             if trimmed.hasPrefix("#") { return .comment(raw) }
             guard let eq = raw.firstIndex(of: "=") else { return .comment(raw) }
-            let key = String(raw[raw.startIndex..<eq]).trimmingCharacters(in: .whitespaces)
-            let value = String(raw[raw.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            var key = String(raw[raw.startIndex..<eq]).trimmingCharacters(in: .whitespaces)
+            if key.hasPrefix("export ") {
+                key = String(key.dropFirst("export ".count)).trimmingCharacters(in: .whitespaces)
+            }
+            let value = stripSurroundingQuotes(
+                String(raw[raw.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            )
             return .entry(EnvEntry(key: key, value: value))
         }
     }
@@ -37,6 +42,14 @@ public enum EnvFile {
     /// Extract just the entries (drop comments/blanks).
     public static func entries(from lines: [EnvLine]) -> [EnvEntry] {
         lines.compactMap { if case let .entry(e) = $0 { return e } else { return nil } }
+    }
+
+    /// Strip one layer of matching surrounding quotes (`"` or `'`). Real `.env`
+    /// files mix quoted and unquoted values; both should display the same.
+    static func stripSurroundingQuotes(_ s: String) -> String {
+        guard s.count >= 2, let first = s.first, let last = s.last,
+              first == last, first == "\"" || first == "'" else { return s }
+        return String(s.dropFirst().dropLast())
     }
 
     /// Mask a secret value as bullet dots, capped at 24.

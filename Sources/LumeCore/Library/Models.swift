@@ -5,11 +5,14 @@ import SwiftData
     @Attribute(.unique) public var path: String
     public var kindRaw: String
     public var dateAdded: Date
+    /// User-defined order within the Favorites list (drag to reorder).
+    public var sortIndex: Int
 
-    public init(path: String, kindRaw: String, dateAdded: Date = .now) {
+    public init(path: String, kindRaw: String, dateAdded: Date = .now, sortIndex: Int = 0) {
         self.path = path
         self.kindRaw = kindRaw
         self.dateAdded = dateAdded
+        self.sortIndex = sortIndex
     }
 }
 
@@ -18,10 +21,13 @@ import SwiftData
 @Model public final class Bookmark {
     @Attribute(.unique) public var path: String
     public var dateAdded: Date
+    /// User-defined order within the Browse Locations list (drag to reorder).
+    public var sortIndex: Int
 
-    public init(path: String, dateAdded: Date = .now) {
+    public init(path: String, dateAdded: Date = .now, sortIndex: Int = 0) {
         self.path = path
         self.dateAdded = dateAdded
+        self.sortIndex = sortIndex
     }
 }
 

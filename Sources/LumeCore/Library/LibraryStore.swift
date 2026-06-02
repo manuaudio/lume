@@ -10,7 +10,7 @@ public final class LibraryStore {
 
     public func addFavorite(path: String, kind: FileKind) {
         if favorite(for: path) != nil { return }
-        context.insert(Favorite(path: path, kindRaw: String(describing: kind)))
+        context.insert(Favorite(path: path, kindRaw: String(describing: kind), sortIndex: favorites().count))
         try? context.save()
     }
 
@@ -18,7 +18,15 @@ public final class LibraryStore {
     /// sentinel raw value and branch on it (and on-disk `isDirectory`) at render.
     public func addFavoriteFolder(path: String) {
         if favorite(for: path) != nil { return }
-        context.insert(Favorite(path: path, kindRaw: "folder"))
+        context.insert(Favorite(path: path, kindRaw: "folder", sortIndex: favorites().count))
+        try? context.save()
+    }
+
+    /// Persist a new ordering for favorites (drag-to-reorder).
+    public func reorderFavorites(_ orderedPaths: [String]) {
+        for (i, p) in orderedPaths.enumerated() {
+            favorite(for: p)?.sortIndex = i
+        }
         try? context.save()
     }
 
@@ -32,7 +40,7 @@ public final class LibraryStore {
 
     public func favorites() -> [Favorite] {
         (try? context.fetch(
-            FetchDescriptor<Favorite>(sortBy: [SortDescriptor(\.dateAdded)])
+            FetchDescriptor<Favorite>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
         )) ?? []
     }
 
@@ -46,7 +54,15 @@ public final class LibraryStore {
 
     public func addBookmark(path: String) {
         if bookmark(for: path) != nil { return }
-        context.insert(Bookmark(path: path))
+        context.insert(Bookmark(path: path, sortIndex: bookmarks().count))
+        try? context.save()
+    }
+
+    /// Persist a new ordering for bookmarks (drag-to-reorder).
+    public func reorderBookmarks(_ orderedPaths: [String]) {
+        for (i, p) in orderedPaths.enumerated() {
+            bookmark(for: p)?.sortIndex = i
+        }
         try? context.save()
     }
 
@@ -58,7 +74,7 @@ public final class LibraryStore {
 
     public func bookmarks() -> [Bookmark] {
         (try? context.fetch(
-            FetchDescriptor<Bookmark>(sortBy: [SortDescriptor(\.dateAdded)])
+            FetchDescriptor<Bookmark>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
         )) ?? []
     }
 

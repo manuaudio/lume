@@ -19,6 +19,31 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     return (LibraryStore(context: container.mainContext), container)
 }
 
+@MainActor @Test func reorderBookmarksPersistsOrder() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.addBookmark(path: "/a")
+    store.addBookmark(path: "/b")
+    store.addBookmark(path: "/c")
+    #expect(store.bookmarks().map(\.path) == ["/a", "/b", "/c"])
+
+    store.reorderBookmarks(["/c", "/a", "/b"])
+    #expect(store.bookmarks().map(\.path) == ["/c", "/a", "/b"])
+}
+
+@MainActor @Test func reorderFavoritesPersistsOrder() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.addFavorite(path: "/x.md", kind: .markdown)
+    store.addFavorite(path: "/y.md", kind: .markdown)
+    #expect(store.favorites().map(\.path) == ["/x.md", "/y.md"])
+
+    store.reorderFavorites(["/y.md", "/x.md"])
+    #expect(store.favorites().map(\.path) == ["/y.md", "/x.md"])
+}
+
 @MainActor @Test func bookmarksAreIndependentOfFavorites() throws {
     let (store, container) = try makeStore()
     defer { withExtendedLifetime(container) {} }
