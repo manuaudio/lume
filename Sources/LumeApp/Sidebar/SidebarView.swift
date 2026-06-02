@@ -9,6 +9,13 @@ struct SidebarView: View {
     @Query(sort: \Favorite.dateAdded) private var favorites: [Favorite]
     @Query(sort: \Bookmark.dateAdded) private var bookmarks: [Bookmark]
     @Query(sort: \Tag.name) private var tags: [Tag]
+    @Query private var allMeta: [FileMeta]
+
+    /// path → custom display name (non-empty only), kept reactive via @Query.
+    private var names: [String: String] {
+        Dictionary(uniqueKeysWithValues:
+            allMeta.filter { !$0.displayName.isEmpty }.map { ($0.path, $0.displayName) })
+    }
 
     private var mode: Binding<SidebarMode> {
         Binding(get: { model.sidebarMode }, set: { model.sidebarMode = $0 })
@@ -46,7 +53,8 @@ struct SidebarView: View {
     @ViewBuilder private var browseContent: some View {
         groupHeader("Locations")
         ForEach(bookmarks) { bm in
-            FavoriteFolderRow(url: URL(fileURLWithPath: bm.path), model: model)
+            FavoriteFolderRow(url: URL(fileURLWithPath: bm.path), model: model,
+                              displayName: names[bm.path], names: names)
                 .id(bm.path)
         }
         .onMove { indices, newOffset in
@@ -55,7 +63,7 @@ struct SidebarView: View {
             model.store?.reorderBookmarks(paths)
         }
         if let root = model.rootFolder, !bookmarks.contains(where: { $0.path == root.path }) {
-            FavoriteFolderRow(url: root, model: model)
+            FavoriteFolderRow(url: root, model: model, displayName: names[root.path], names: names)
                 .id(root.path)
         }
         if bookmarks.isEmpty && model.rootFolder == nil {
@@ -87,10 +95,10 @@ struct SidebarView: View {
             ForEach(favorites) { fav in
                 let url = URL(fileURLWithPath: fav.path)
                 if fav.kindRaw == "folder" {
-                    FavoriteFolderRow(url: url, model: model)
+                    FavoriteFolderRow(url: url, model: model, displayName: names[fav.path], names: names)
                         .id(fav.path)
                 } else {
-                    FileLeafRow(url: url, model: model)
+                    FileLeafRow(url: url, model: model, displayName: names[fav.path])
                 }
             }
             .onMove { indices, newOffset in

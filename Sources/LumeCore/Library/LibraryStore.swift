@@ -86,13 +86,14 @@ public final class LibraryStore {
 
     // MARK: Metadata (tags + notes)
 
-    public func setMeta(path: String, info: String, tagNames: [String]) {
+    public func setMeta(path: String, info: String, tagNames: [String], displayName: String = "") {
         let meta = meta(for: path) ?? {
             let m = FileMeta(path: path)
             context.insert(m)
             return m
         }()
         meta.info = info
+        meta.displayName = displayName
         // De-duplicate names before resolving Tags so we never try to create two
         // Tags with the same unique `name` in one pass (the second `tag(named:)`
         // can't yet see the first, unsaved one), which would make the save throw
@@ -107,6 +108,12 @@ public final class LibraryStore {
         var d = FetchDescriptor<FileMeta>(predicate: #Predicate { $0.path == path })
         d.fetchLimit = 1
         return try? context.fetch(d).first
+    }
+
+    /// The user-given label for a path, or nil if none set.
+    public func displayName(for path: String) -> String? {
+        let name = meta(for: path)?.displayName ?? ""
+        return name.isEmpty ? nil : name
     }
 
     public func files(taggedWith name: String) -> [FileMeta] {

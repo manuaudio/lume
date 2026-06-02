@@ -8,6 +8,7 @@ struct InfoPanelView: View {
     let model: AppModel
 
     @Environment(\.modelContext) private var context
+    @State private var name = ""
     @State private var tagsText = ""
     @State private var notes = ""
 
@@ -20,6 +21,7 @@ struct InfoPanelView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         fileSummary(url)
+                        nameSection(url)
                         tagsSection
                         notesSection
                     }
@@ -58,15 +60,31 @@ struct InfoPanelView: View {
 
     private func fileSummary(_ url: URL) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(url.lastPathComponent)
+            Text(name.isEmpty ? url.lastPathComponent : name)
                 .font(.title3.weight(.semibold))
                 .lineLimit(2)
                 .truncationMode(.middle)
-            Text(url.deletingLastPathComponent().path)
+            Text(name.isEmpty
+                 ? url.deletingLastPathComponent().path
+                 : url.path)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
+        }
+    }
+
+    private func nameSection(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("DISPLAY NAME")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField(url.lastPathComponent, text: $name)
+                .textFieldStyle(.roundedBorder)
+            Text("A friendly label shown in the sidebar (e.g. name a .env so you can tell them apart).")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -110,10 +128,12 @@ struct InfoPanelView: View {
 
     private func load() {
         guard let url = model.selectedFile, let meta = store().meta(for: url.path) else {
+            name = ""
             tagsText = ""
             notes = ""
             return
         }
+        name = meta.displayName
         tagsText = meta.tags.map(\.name).joined(separator: ", ")
         notes = meta.info
     }
@@ -122,6 +142,7 @@ struct InfoPanelView: View {
         let names = tagsText.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        store().setMeta(path: url.path, info: notes, tagNames: names)
+        store().setMeta(path: url.path, info: notes, tagNames: names,
+                        displayName: name.trimmingCharacters(in: .whitespaces))
     }
 }

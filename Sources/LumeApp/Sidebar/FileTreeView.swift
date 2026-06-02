@@ -6,13 +6,15 @@ import LumeCore
 struct FileTreeView: View {
     let nodes: [FileNode]
     let model: AppModel
+    /// path → custom display name, so named files (e.g. `.env`s) read clearly.
+    var names: [String: String] = [:]
 
     var body: some View {
         ForEach(nodes) { node in
             if node.isDirectory {
-                DirectoryRow(node: node, model: model)
+                DirectoryRow(node: node, model: model, names: names)
             } else {
-                FileLeafRow(url: node.url, model: model)
+                FileLeafRow(url: node.url, model: model, displayName: names[node.url.path])
             }
         }
     }
@@ -25,6 +27,7 @@ struct FileTreeView: View {
 struct FileLeafRow: View {
     let url: URL
     let model: AppModel
+    var displayName: String? = nil
 
     private var isSelected: Bool { model.selectedFile == url }
 
@@ -32,7 +35,7 @@ struct FileLeafRow: View {
         Button {
             model.selectedFile = url
         } label: {
-            FileRow(url: url, kind: FileKind.detect(filename: url.lastPathComponent))
+            FileRow(url: url, kind: FileKind.detect(filename: url.lastPathComponent), name: displayName)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -52,6 +55,7 @@ struct FileLeafRow: View {
 struct DirectoryRow: View {
     let node: FileNode
     let model: AppModel
+    var names: [String: String] = [:]
 
     @State private var isExpanded = false
     @State private var children: [FileNode]?
@@ -59,7 +63,7 @@ struct DirectoryRow: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             if let children {
-                FileTreeView(nodes: children, model: model)
+                FileTreeView(nodes: children, model: model, names: names)
             }
         } label: {
             Label(node.name, systemImage: "folder")
@@ -83,6 +87,8 @@ struct DirectoryRow: View {
 struct FavoriteFolderRow: View {
     let url: URL
     let model: AppModel
+    var displayName: String? = nil
+    var names: [String: String] = [:]
 
     @State private var isExpanded = false
     @State private var children: [FileNode]?
@@ -90,10 +96,10 @@ struct FavoriteFolderRow: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             if let children {
-                FileTreeView(nodes: children, model: model)
+                FileTreeView(nodes: children, model: model, names: names)
             }
         } label: {
-            Label(url.lastPathComponent, systemImage: "folder.fill")
+            Label(displayName ?? url.lastPathComponent, systemImage: "folder.fill")
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.yellow)
                 .contextMenu { FavoriteMenu(url: url, isDirectory: true, model: model) }
@@ -112,10 +118,11 @@ struct FavoriteFolderRow: View {
 struct FileRow: View {
     let url: URL
     let kind: FileKind
+    var name: String? = nil
 
     var body: some View {
         Label {
-            Text(url.lastPathComponent)
+            Text(name ?? url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
         } icon: {

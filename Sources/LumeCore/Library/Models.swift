@@ -44,11 +44,15 @@ import SwiftData
 @Model public final class FileMeta {
     @Attribute(.unique) public var path: String
     public var info: String
+    /// Optional user-given label shown instead of the filename (e.g. name a
+    /// `.env` "Chief — prod keys" so 10 `.env` files are distinguishable).
+    public var displayName: String
     @Relationship(inverse: \Tag.files) public var tags: [Tag]
 
-    public init(path: String, info: String = "", tags: [Tag] = []) {
+    public init(path: String, info: String = "", displayName: String = "", tags: [Tag] = []) {
         self.path = path
         self.info = info
+        self.displayName = displayName
         self.tags = tags
     }
 }

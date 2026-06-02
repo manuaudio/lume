@@ -44,6 +44,20 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(store.favorites().map(\.path) == ["/y.md", "/x.md"])
 }
 
+@MainActor @Test func displayNameStoresAndClears() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    #expect(store.displayName(for: "/p/.env") == nil)
+    store.setMeta(path: "/p/.env", info: "", tagNames: ["prod"], displayName: "Chief — prod keys")
+    #expect(store.displayName(for: "/p/.env") == "Chief — prod keys")
+    #expect(store.meta(for: "/p/.env")?.tags.map(\.name) == ["prod"])
+
+    // Clearing the name returns nil again (empty is treated as "no label").
+    store.setMeta(path: "/p/.env", info: "", tagNames: ["prod"], displayName: "")
+    #expect(store.displayName(for: "/p/.env") == nil)
+}
+
 @MainActor @Test func bookmarksAreIndependentOfFavorites() throws {
     let (store, container) = try makeStore()
     defer { withExtendedLifetime(container) {} }
