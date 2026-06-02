@@ -98,19 +98,21 @@ final class AppModel {
         }
     }
 
-    /// Seed Finder-style starting locations the first run, so Browse can reach
-    /// the whole filesystem, not just one opened folder.
-    func seedDefaultBookmarksIfNeeded() {
-        guard let store, store.bookmarks().isEmpty else { return }
+    /// First-run setup: migrate any old bookmarks to pins, then seed default
+    /// pinned locations if there are no favorites yet.
+    func seedAndMigratePins() {
+        guard let store else { return }
+        store.migrateBookmarksToFavorites()
+        guard store.favorites().isEmpty else { return }
         let fm = FileManager.default
-        store.addBookmark(path: homeURL.path)
+        store.addFavoriteFolder(path: homeURL.path)
         let candidates = [
             homeURL.appendingPathComponent("Documents"),
             homeURL.appendingPathComponent("Desktop"),
             homeURL.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
         ]
         for url in candidates where fm.fileExists(atPath: url.path) {
-            store.addBookmark(path: url.path)
+            store.addFavoriteFolder(path: url.path)
         }
     }
 

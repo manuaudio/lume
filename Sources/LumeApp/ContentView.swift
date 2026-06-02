@@ -39,7 +39,7 @@ struct ContentView: View {
         }
         .onAppear {
             model.libraryContext = context
-            model.seedDefaultBookmarksIfNeeded()
+            model.seedAndMigratePins()
             model.applyLaunchEnvironment()
         }
         .onReceive(NotificationCenter.default.publisher(for: .lumeOpenFolder)) { _ in
