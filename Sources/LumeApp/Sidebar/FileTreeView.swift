@@ -1,116 +1,97 @@
+import AppKit
 import SwiftUI
 import LumeCore
 
-/// Recursive disclosure tree for a folder. File rows are taggable for
-/// `List(selection:)` navigation; every row has a favorite context menu.
+/// Lazily lists the children of `parent`, honoring files-only + tag filter.
 struct FileTreeView: View {
-    let nodes: [FileNode]
+    let parent: URL
     let model: AppModel
-    /// path → custom display name, so named files (e.g. `.env`s) read clearly.
     var names: [String: String] = [:]
+    var depth: Int = 0
+
+    @State private var children: [FileNode] = []
 
     var body: some View {
-        ForEach(nodes) { node in
-            if node.isDirectory {
-                DirectoryRow(node: node, model: model, names: names)
+        ForEach(visibleChildren) { node in
+            SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
+                           section: .browser, depth: depth,
+                           model: model, names: names)
+                .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
+                                section: .browser).id)
+
+            if node.isDirectory, model.expandedPaths.contains(node.url.path) {
+                FileTreeView(parent: node.url, model: model, names: names, depth: depth + 1)
+            }
+        }
+        .onAppear { reload() }
+        .onChange(of: parent) { _, _ in reload() }
+        .onChange(of: model.filesOnly) { _, _ in /* filter is derived, just refresh view */ }
+    }
+
+    private var visibleChildren: [FileNode] {
+        var nodes = children
+        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
+        if let tag = model.activeTagFilter {
+            let allowed = model.store?.paths(taggedWith: tag) ?? []
+            // Keep directories (so you can navigate into them) + tagged files.
+            nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
+        }
+        return nodes
+    }
+
+    private func reload() {
+        children = model.children(of: parent)
+    }
+}
+
+/// One selectable file/folder row. Single-click a folder toggles inline
+/// expansion; double-click drills in. Files select (SidebarView opens them).
+struct SidebarItemRow: View {
+    let url: URL
+    let isDirectory: Bool
+    let section: SidebarSection
+    var depth: Int = 0
+    let model: AppModel
+    var names: [String: String] = [:]
+
+    private var isExpanded: Bool { model.expandedPaths.contains(url.path) }
+    private var isRenaming: Bool { model.renamingPath == url.path }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isDirectory {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(width: 12)
+                    .onTapGesture { toggleExpand() }
             } else {
-                FileLeafRow(url: node.url, model: model, displayName: names[node.url.path])
+                Spacer().frame(width: 12)
             }
-        }
-    }
-}
 
-/// A selectable file row. Left-click opens it; right-click favorites without
-/// changing the open document. Highlight is driven solely by `model.selectedFile`
-/// (no native List selection), so exactly one row is ever highlighted — no
-/// ghost rows across Favorites/Browse switches.
-struct FileLeafRow: View {
-    let url: URL
-    let model: AppModel
-    var displayName: String? = nil
-
-    private var isSelected: Bool { model.selectedFile == url }
-
-    var body: some View {
-        Button {
-            model.selectedFile = url
-        } label: {
-            FileRow(url: url, kind: FileKind.detect(filename: url.lastPathComponent), name: displayName)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .listRowBackground(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(isSelected ? 0.22 : 0))
-                .padding(.horizontal, 6)
-        )
-        .foregroundStyle(isSelected ? Color.accentColor : .primary)
-        .contextMenu { FavoriteMenu(url: url, isDirectory: false, model: model) }
-    }
-}
-
-/// A directory in the browse tree. Children are enumerated from disk lazily —
-/// only the first time it is expanded — then cached.
-struct DirectoryRow: View {
-    let node: FileNode
-    let model: AppModel
-    var names: [String: String] = [:]
-
-    @State private var isExpanded = false
-    @State private var children: [FileNode]?
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            if let children {
-                FileTreeView(nodes: children, model: model, names: names)
+            if isRenaming {
+                RenameField(url: url, model: model)
+            } else if isDirectory {
+                Label(names[url.path] ?? url.lastPathComponent,
+                      systemImage: section == .pinned ? "folder.fill" : "folder")
+                    .foregroundStyle(section == .pinned ? .yellow : .primary)
+                    .lineLimit(1)
+            } else {
+                FileRow(url: url,
+                        kind: FileKind.detect(filename: url.lastPathComponent),
+                        name: names[url.path])
             }
-        } label: {
-            Label(node.name, systemImage: "folder")
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.primary)
-                .contextMenu { FavoriteMenu(url: node.url, isDirectory: true, model: model) }
+            Spacer(minLength: 0)
         }
-        .onChange(of: isExpanded) { _, expanded in
-            if expanded, children == nil { children = model.children(of: node) }
-        }
-        // SwiftUI may reuse this row (and its cached children) for a DIFFERENT
-        // folder when the list changes — drop the stale cache if the URL changes.
-        .onChange(of: node.url) { _, _ in
-            children = nil
-            isExpanded = false
-        }
+        .padding(.leading, CGFloat(depth) * 12)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { if isDirectory { model.drillInto(url) } }
+        .onTapGesture(count: 1) { if isDirectory { toggleExpand() } else { model.selectedFile = url } }
+        .contextMenu { RowMenu(url: url, isDirectory: isDirectory, model: model) }
     }
-}
 
-/// A favorited folder shown in Favorites mode — expands to its live contents.
-struct FavoriteFolderRow: View {
-    let url: URL
-    let model: AppModel
-    var displayName: String? = nil
-    var names: [String: String] = [:]
-
-    @State private var isExpanded = false
-    @State private var children: [FileNode]?
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            if let children {
-                FileTreeView(nodes: children, model: model, names: names)
-            }
-        } label: {
-            Label(displayName ?? url.lastPathComponent, systemImage: "folder.fill")
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.yellow)
-                .contextMenu { FavoriteMenu(url: url, isDirectory: true, model: model) }
-        }
-        .onChange(of: isExpanded) { _, expanded in
-            if expanded, children == nil { children = model.children(of: url) }
-        }
-        .onChange(of: url) { _, _ in
-            children = nil
-            isExpanded = false
-        }
+    private func toggleExpand() {
+        if isExpanded { model.expandedPaths.remove(url.path) }
+        else { model.expandedPaths.insert(url.path) }
     }
 }
 
@@ -122,9 +103,7 @@ struct FileRow: View {
 
     var body: some View {
         Label {
-            Text(name ?? url.lastPathComponent)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            Text(name ?? url.lastPathComponent).lineLimit(1).truncationMode(.middle)
         } icon: {
             Image(systemName: icon(for: kind))
                 .symbolRenderingMode(.hierarchical)
@@ -156,24 +135,72 @@ struct FileRow: View {
     }
 }
 
-/// Shared favorite/unfavorite menu item for files and folders.
-struct FavoriteMenu: View {
+/// Shared right-click menu for any sidebar row.
+struct RowMenu: View {
     let url: URL
     let isDirectory: Bool
     let model: AppModel
 
     var body: some View {
-        let fav = model.isFavorite(url)
-        Button(fav ? "Remove from Favorites" : "Add to Favorites",
-               systemImage: fav ? "star.slash" : "star") {
-            model.toggleFavorite(url, isDirectory: isDirectory)
-        }
         if isDirectory {
-            let bm = model.isBookmarked(url)
-            Button(bm ? "Remove from Browse" : "Pin to Browse",
-                   systemImage: bm ? "bookmark.slash" : "bookmark") {
-                model.toggleBookmark(url)
-            }
+            Button("Open", systemImage: "arrow.right.circle") { model.drillInto(url) }
+            Button("Expand / Collapse", systemImage: "chevron.right") { toggleExpand() }
+        } else {
+            Button("Open", systemImage: "doc.text") { model.selectedFile = url }
         }
+        Divider()
+        let pinned = model.isPinned(url)
+        Button(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") {
+            model.togglePin(url, isDirectory: isDirectory)
+        }
+        Button("Rename…", systemImage: "pencil") { model.renamingPath = url.path }
+        Button("Edit Tags / Notes…", systemImage: "tag") {
+            model.selectedFile = url
+            model.notesOpenPath = url.path
+        }
+        Divider()
+        Button("Reveal in Finder", systemImage: "magnifyingglass") {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
+    private func toggleExpand() {
+        if model.expandedPaths.contains(url.path) { model.expandedPaths.remove(url.path) }
+        else { model.expandedPaths.insert(url.path) }
+    }
+}
+
+/// In-place display-name editor shown on the row being renamed.
+struct RenameField: View {
+    let url: URL
+    let model: AppModel
+
+    @Environment(\.modelContext) private var context
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Name", text: $text)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear {
+                text = model.store?.displayName(for: url.path) ?? url.lastPathComponent
+                focused = true
+            }
+            .onSubmit { commit() }
+            .onExitCommand { model.renamingPath = nil }   // Esc cancels
+            .onChange(of: focused) { _, f in if !f { commit() } }
+    }
+
+    private func commit() {
+        let store = LibraryStore(context: context)
+        let meta = store.meta(for: url.path)
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        // Preserve existing notes/tags; only the display name changes here.
+        store.setMeta(path: url.path,
+                      info: meta?.info ?? "",
+                      tagNames: meta?.tags.map(\.name) ?? [],
+                      displayName: trimmed == url.lastPathComponent ? "" : trimmed)
+        model.renamingPath = nil
     }
 }
