@@ -18,6 +18,13 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Use the bundled Lume icon for the Dock/⌘-Tab even when run as a bare
+        // SPM executable (no Info.plist). A real .app bundle also sets it via
+        // CFBundleIconFile, but this covers `swift run` too.
+        if let url = Bundle.module.url(forResource: "Lume", withExtension: "icns"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         NSApp.activate(ignoringOtherApps: true)
         // Persist window size/position across launches (friendly native behavior).
         DispatchQueue.main.async {
