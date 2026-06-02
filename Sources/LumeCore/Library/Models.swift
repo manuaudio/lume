@@ -13,6 +13,18 @@ import SwiftData
     }
 }
 
+/// A folder pinned to the top of the Browse sidebar (a Finder-style alias).
+/// Independent of `Favorite` so a folder can be both bookmarked and favorited.
+@Model public final class Bookmark {
+    @Attribute(.unique) public var path: String
+    public var dateAdded: Date
+
+    public init(path: String, dateAdded: Date = .now) {
+        self.path = path
+        self.dateAdded = dateAdded
+    }
+}
+
 @Model public final class Tag {
     @Attribute(.unique) public var name: String
     public var files: [FileMeta]

@@ -13,10 +13,32 @@ import SwiftData
 @MainActor
 private func makeStore() throws -> (store: LibraryStore, container: ModelContainer) {
     let container = try ModelContainer(
-        for: Favorite.self, Tag.self, FileMeta.self,
+        for: Favorite.self, Tag.self, FileMeta.self, Bookmark.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
     return (LibraryStore(context: container.mainContext), container)
+}
+
+@MainActor @Test func bookmarksAreIndependentOfFavorites() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    #expect(store.isBookmarked(path: "/work") == false)
+    store.addBookmark(path: "/work")
+    store.addBookmark(path: "/work")            // no duplicate
+    #expect(store.bookmarks().map(\.path) == ["/work"])
+    #expect(store.isBookmarked(path: "/work") == true)
+
+    // A folder can be both bookmarked and favorited (separate models).
+    store.addFavoriteFolder(path: "/work")
+    #expect(store.isFavorite(path: "/work") == true)
+    #expect(store.isBookmarked(path: "/work") == true)
+    // favorites() does not leak bookmarks.
+    #expect(store.favorites().allSatisfy { $0.kindRaw != "bookmark" })
+
+    store.removeBookmark(path: "/work")
+    #expect(store.isBookmarked(path: "/work") == false)
+    #expect(store.isFavorite(path: "/work") == true)   // favorite survives
 }
 
 @MainActor @Test func favoriteFoldersAndIsFavorite() throws {

@@ -16,15 +16,15 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 290, max: 420)
         } detail: {
             DocumentSurfaceView(model: model)
-                .frame(minWidth: 320, minHeight: 300)
+                .frame(minWidth: 260, minHeight: 280)
                 // Native inspector: a collapsible trailing panel that resizes
                 // gracefully and never chops the document at narrow widths.
                 .inspector(isPresented: showInfo) {
                     InfoPanelView(model: model)
-                        .inspectorColumnWidth(min: 240, ideal: 280, max: 380)
+                        .inspectorColumnWidth(min: 200, ideal: 260, max: 360)
                 }
         }
         .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
@@ -58,6 +58,7 @@ struct ContentView: View {
         }
         .onAppear {
             model.libraryContext = context
+            model.seedDefaultBookmarksIfNeeded()
             model.applyLaunchEnvironment()
         }
         .onChange(of: model.selectedFile) { _, _ in

@@ -7,6 +7,8 @@ struct SidebarView: View {
 
     @Environment(\.modelContext) private var context
     @Query(sort: \Favorite.dateAdded) private var favorites: [Favorite]
+    @Query(sort: \Bookmark.dateAdded) private var bookmarks: [Bookmark]
+    @Query(sort: \Tag.name) private var tags: [Tag]
 
     private var mode: Binding<SidebarMode> {
         Binding(get: { model.sidebarMode }, set: { model.sidebarMode = $0 })
@@ -15,8 +17,7 @@ struct SidebarView: View {
     var body: some View {
         // List holds rows directly (NO Section header): on macOS `.sidebar`
         // style, section headers get a negative leading inset and clip long
-        // text. The folder name lives in the top bar below, which we fully
-        // control, so nothing clips.
+        // text. Mini-headers below are plain rows we fully control.
         List {
             if model.sidebarMode == .favorites {
                 favoritesContent
@@ -26,7 +27,7 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 Picker("View", selection: mode) {
                     ForEach(SidebarMode.allCases) { m in
                         Text(m.label).tag(m)
@@ -34,40 +35,50 @@ struct SidebarView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-
-                if model.sidebarMode == .browse, let name = model.rootFolder?.lastPathComponent {
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder")
-                        Text(name).lineLimit(1).truncationMode(.middle)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.bar)
             .overlay(alignment: .bottom) { Divider() }
         }
     }
 
+    // MARK: Browse — Finder-style Locations (whole filesystem, expandable)
+
     @ViewBuilder private var browseContent: some View {
-        if model.tree.isEmpty {
-            Text("No folder open")
-                .foregroundStyle(.secondary)
+        groupHeader("Locations")
+        ForEach(bookmarks) { bm in
+            FavoriteFolderRow(url: URL(fileURLWithPath: bm.path), model: model)
+        }
+        if let root = model.rootFolder, !bookmarks.contains(where: { $0.path == root.path }) {
+            FavoriteFolderRow(url: root, model: model)
+        }
+        if bookmarks.isEmpty && model.rootFolder == nil {
+            Text("Use ⌘O or the folder button to open a location.")
                 .font(.callout)
-        } else {
-            FileTreeView(nodes: model.tree, model: model)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    // MARK: Favorites — tags + favorited folders/files
+
     @ViewBuilder private var favoritesContent: some View {
+        if !tags.isEmpty {
+            groupHeader("Tags")
+            ForEach(tags) { tag in
+                Label(tag.name, systemImage: "tag")
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        groupHeader("Favorites")
         if favorites.isEmpty {
             Text("No favorites yet.\nRight-click any file or folder to add it.")
-                .foregroundStyle(.secondary)
                 .font(.callout)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             ForEach(favorites) { fav in
@@ -79,5 +90,15 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+
+    private func groupHeader(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(.tertiary)
+            .padding(.top, 8)
+            .padding(.leading, 2)
+            .listRowSeparator(.hidden)
     }
 }

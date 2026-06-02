@@ -42,6 +42,32 @@ public final class LibraryStore {
         return try? context.fetch(d).first
     }
 
+    // MARK: Bookmarks (folders pinned to the top of Browse)
+
+    public func addBookmark(path: String) {
+        if bookmark(for: path) != nil { return }
+        context.insert(Bookmark(path: path))
+        try? context.save()
+    }
+
+    public func removeBookmark(path: String) {
+        if let b = bookmark(for: path) { context.delete(b); try? context.save() }
+    }
+
+    public func isBookmarked(path: String) -> Bool { bookmark(for: path) != nil }
+
+    public func bookmarks() -> [Bookmark] {
+        (try? context.fetch(
+            FetchDescriptor<Bookmark>(sortBy: [SortDescriptor(\.dateAdded)])
+        )) ?? []
+    }
+
+    private func bookmark(for path: String) -> Bookmark? {
+        var d = FetchDescriptor<Bookmark>(predicate: #Predicate { $0.path == path })
+        d.fetchLimit = 1
+        return try? context.fetch(d).first
+    }
+
     // MARK: Metadata (tags + notes)
 
     public func setMeta(path: String, info: String, tagNames: [String]) {

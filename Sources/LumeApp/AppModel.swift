@@ -70,6 +70,37 @@ final class AppModel {
         }
     }
 
+    // MARK: Bookmarks (Browse aliases)
+
+    var homeURL: URL { FileManager.default.homeDirectoryForCurrentUser }
+
+    func isBookmarked(_ url: URL) -> Bool { store?.isBookmarked(path: url.path) ?? false }
+
+    func toggleBookmark(_ url: URL) {
+        guard let store else { return }
+        if store.isBookmarked(path: url.path) {
+            store.removeBookmark(path: url.path)
+        } else {
+            store.addBookmark(path: url.path)
+        }
+    }
+
+    /// Seed Finder-style starting locations the first run, so Browse can reach
+    /// the whole filesystem, not just one opened folder.
+    func seedDefaultBookmarksIfNeeded() {
+        guard let store, store.bookmarks().isEmpty else { return }
+        let fm = FileManager.default
+        store.addBookmark(path: homeURL.path)
+        let candidates = [
+            homeURL.appendingPathComponent("Documents"),
+            homeURL.appendingPathComponent("Desktop"),
+            homeURL.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
+        ]
+        for url in candidates where fm.fileExists(atPath: url.path) {
+            store.addBookmark(path: url.path)
+        }
+    }
+
     /// Open a folder (and optionally select a file) from environment variables,
     /// so Lume can be launched pointed at a location:
     ///   LUME_OPEN_FOLDER=/path/to/dir  LUME_OPEN_FILE=/path/to/dir/file.md

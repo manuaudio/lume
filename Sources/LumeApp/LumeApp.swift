@@ -24,9 +24,9 @@ struct LumeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 560, minHeight: 400)
+                .frame(minWidth: 720, minHeight: 440)
         }
-        .modelContainer(for: [Favorite.self, Tag.self, FileMeta.self])
+        .modelContainer(for: [Favorite.self, Tag.self, FileMeta.self, Bookmark.self])
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 1180, height: 760)

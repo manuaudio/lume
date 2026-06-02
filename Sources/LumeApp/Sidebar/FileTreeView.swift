@@ -151,5 +151,12 @@ struct FavoriteMenu: View {
                systemImage: fav ? "star.slash" : "star") {
             model.toggleFavorite(url, isDirectory: isDirectory)
         }
+        if isDirectory {
+            let bm = model.isBookmarked(url)
+            Button(bm ? "Remove from Browse" : "Pin to Browse",
+                   systemImage: bm ? "bookmark.slash" : "bookmark") {
+                model.toggleBookmark(url)
+            }
+        }
     }
 }
