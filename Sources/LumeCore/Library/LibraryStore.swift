@@ -14,6 +14,18 @@ public final class LibraryStore {
         try? context.save()
     }
 
+    /// Favorite a directory. Folders aren't a `FileKind`, so we persist a
+    /// sentinel raw value and branch on it (and on-disk `isDirectory`) at render.
+    public func addFavoriteFolder(path: String) {
+        if favorite(for: path) != nil { return }
+        context.insert(Favorite(path: path, kindRaw: "folder"))
+        try? context.save()
+    }
+
+    public func isFavorite(path: String) -> Bool {
+        favorite(for: path) != nil
+    }
+
     public func removeFavorite(path: String) {
         if let fav = favorite(for: path) { context.delete(fav) ; try? context.save() }
     }

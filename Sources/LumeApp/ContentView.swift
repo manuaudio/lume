@@ -9,23 +9,23 @@ struct ContentView: View {
 
     @State private var isFavorited = false
 
+    private var showInfo: Binding<Bool> {
+        Binding(get: { model.showInfoPanel }, set: { model.showInfoPanel = $0 })
+    }
+
     var body: some View {
         NavigationSplitView {
             SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 360)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
         } detail: {
-            HSplitView {
-                DocumentSurfaceView(model: model)
-                    .frame(minWidth: 460)
-                    .layoutPriority(1)
-
-                if model.showInfoPanel {
+            DocumentSurfaceView(model: model)
+                .frame(minWidth: 320, minHeight: 300)
+                // Native inspector: a collapsible trailing panel that resizes
+                // gracefully and never chops the document at narrow widths.
+                .inspector(isPresented: showInfo) {
                     InfoPanelView(model: model)
-                        .frame(minWidth: 260, idealWidth: 280, maxWidth: 360)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .inspectorColumnWidth(min: 240, ideal: 280, max: 380)
                 }
-            }
-            .animation(.easeInOut(duration: 0.2), value: model.showInfoPanel)
         }
         .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
         .toolbar {
@@ -80,21 +80,12 @@ struct ContentView: View {
     }
 
     private func toggleFavorite() {
-        guard let url = model.selectedFile, let store = model.store else { return }
-        let path = url.path
-        if store.favorites().contains(where: { $0.path == path }) {
-            store.removeFavorite(path: path)
-        } else {
-            store.addFavorite(path: path, kind: FileKind.detect(filename: url.lastPathComponent))
-        }
+        guard let url = model.selectedFile else { return }
+        model.toggleFavorite(url, isDirectory: false)
         refreshFavoriteState()
     }
 
     private func refreshFavoriteState() {
-        guard let url = model.selectedFile, let store = model.store else {
-            isFavorited = false
-            return
-        }
-        isFavorited = store.favorites().contains { $0.path == url.path }
+        isFavorited = model.selectedFile.map { model.isFavorite($0) } ?? false
     }
 }

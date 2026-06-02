@@ -19,6 +19,24 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     return (LibraryStore(context: container.mainContext), container)
 }
 
+@MainActor @Test func favoriteFoldersAndIsFavorite() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    #expect(store.isFavorite(path: "/a") == false)
+    store.addFavoriteFolder(path: "/a")
+    store.addFavorite(path: "/a/b.md", kind: .markdown)
+
+    #expect(store.isFavorite(path: "/a") == true)
+    #expect(store.isFavorite(path: "/a/b.md") == true)
+    // Folder favorites persist a "folder" sentinel kind.
+    let folderFav = store.favorites().first { $0.path == "/a" }
+    #expect(folderFav?.kindRaw == "folder")
+    // Adding the same folder twice does not duplicate.
+    store.addFavoriteFolder(path: "/a")
+    #expect(store.favorites().filter { $0.path == "/a" }.count == 1)
+}
+
 @MainActor @Test func addAndRemoveFavorite() throws {
     let (store, container) = try makeStore()
     defer { withExtendedLifetime(container) {} }

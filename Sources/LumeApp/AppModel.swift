@@ -4,6 +4,13 @@ import Observation
 import LumeCore
 
 /// Observable app state shared across the three panes.
+enum SidebarMode: String, CaseIterable, Identifiable {
+    case favorites, browse
+    var id: String { rawValue }
+    var label: String { self == .favorites ? "Favorites" : "Browse" }
+    var systemImage: String { self == .favorites ? "star" : "folder" }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -12,6 +19,7 @@ final class AppModel {
     var selectedFile: URL?
     var showInfoPanel = true
     var activeTagFilter: String?
+    var sidebarMode: SidebarMode = .browse
 
     /// Injected once from `ContentView` so toolbar/sidebar actions can reach
     /// the SwiftData store without each view re-deriving it.
@@ -37,6 +45,29 @@ final class AppModel {
 
     func children(of node: FileNode) -> [FileNode] {
         (try? files.enumerate(node.url)) ?? []
+    }
+
+    func children(of url: URL) -> [FileNode] {
+        (try? files.enumerate(url)) ?? []
+    }
+
+    // MARK: Favorites
+
+    func isFavorite(_ url: URL) -> Bool {
+        store?.isFavorite(path: url.path) ?? false
+    }
+
+    /// Toggle favorite for a file or folder. Folders persist a sentinel kind.
+    func toggleFavorite(_ url: URL, isDirectory: Bool) {
+        guard let store else { return }
+        let path = url.path
+        if store.isFavorite(path: path) {
+            store.removeFavorite(path: path)
+        } else if isDirectory {
+            store.addFavoriteFolder(path: path)
+        } else {
+            store.addFavorite(path: path, kind: FileKind.detect(filename: url.lastPathComponent))
+        }
     }
 
     /// Open a folder (and optionally select a file) from environment variables,

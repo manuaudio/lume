@@ -24,7 +24,7 @@ struct LumeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 900, minHeight: 560)
+                .frame(minWidth: 560, minHeight: 400)
         }
         .modelContainer(for: [Favorite.self, Tag.self, FileMeta.self])
         .windowStyle(.titleBar)
