@@ -212,6 +212,7 @@ struct RowMetaView: View {
     @State private var tagsText = ""
     @State private var notes = ""
     @State private var loaded = false
+    @State private var saveTask: Task<Void, Never>?
 
     private var notesOpen: Bool { model.notesOpenPath == url.path }
 
@@ -238,12 +239,13 @@ struct RowMetaView: View {
                     .padding(6)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-                    .onChange(of: notes) { _, _ in save() }   // autosave
+                    .onChange(of: notes) { _, _ in scheduleSave() }   // debounced autosave
             }
         }
         .padding(.leading, 18)
         .padding(.vertical, 2)
         .onAppear(perform: load)
+        .onDisappear { saveTask?.cancel(); save() }
         .onChange(of: url) { _, _ in loaded = false; load() }
     }
 
@@ -254,6 +256,15 @@ struct RowMetaView: View {
         tagsText = meta?.tags.map(\.name).joined(separator: ", ") ?? ""
         notes = meta?.info ?? ""
         loaded = true
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if Task.isCancelled { return }
+            save()
+        }
     }
 
     private func save() {
