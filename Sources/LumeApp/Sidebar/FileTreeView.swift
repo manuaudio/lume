@@ -214,6 +214,8 @@ struct RowMetaView: View {
     @State private var loaded = false
     @State private var saveTask: Task<Void, Never>?
 
+    private static let saveDebounce = Duration.milliseconds(400)
+
     private var notesOpen: Bool { model.notesOpenPath == url.path }
 
     var body: some View {
@@ -223,13 +225,14 @@ struct RowMetaView: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
                     .onSubmit { save() }
+                    .onChange(of: tagsText) { _, _ in scheduleSave() }
                 Button {
                     model.notesOpenPath = notesOpen ? nil : url.path
                 } label: {
                     Image(systemName: notesOpen ? "note.text" : "note.text.badge.plus")
                 }
                 .buttonStyle(.borderless)
-                .help("Notes")
+                .help(notesOpen ? "Hide notes" : "Add notes")
             }
             if notesOpen {
                 TextField("Notes…", text: $notes, axis: .vertical)
@@ -246,7 +249,7 @@ struct RowMetaView: View {
         .padding(.vertical, 2)
         .onAppear(perform: load)
         .onDisappear { saveTask?.cancel(); save() }
-        .onChange(of: url) { _, _ in loaded = false; load() }
+        .onChange(of: url) { _, _ in saveTask?.cancel(); loaded = false; load() }
     }
 
     private func load() {
@@ -261,7 +264,7 @@ struct RowMetaView: View {
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: Self.saveDebounce)
             if Task.isCancelled { return }
             save()
         }
