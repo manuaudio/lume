@@ -34,10 +34,13 @@ struct MarkdownEditorView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground") // let the page bg show through
         bridge.attach(webView)
 
-        // Push the initial document once the editor page is ready.
+        // Push the initial document once the editor page is ready. The read is
+        // iCloud-aware and runs off the main thread, so a slow/evicted file does
+        // not freeze the UI; the editor loads when the bytes arrive.
         bridge.onReady = { [model] in
-            let text = model.readFile(fileURL)
-            bridge.load(text: text, editable: editable, dark: dark)
+            model.readFile(fileURL) { text in
+                bridge.load(text: text, editable: editable, dark: dark)
+            }
         }
 
         if let base = WebEditorResources.editorURL {

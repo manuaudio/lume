@@ -10,15 +10,20 @@ struct PDFViewer: NSViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.backgroundColor = .clear
-        ICloudCoordinator.ensureDownloaded(fileURL)
-        view.document = PDFDocument(url: fileURL)
+        load(into: view)
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
         if view.document?.documentURL != fileURL {
-            ICloudCoordinator.ensureDownloaded(fileURL)
-            view.document = PDFDocument(url: fileURL)
+            load(into: view)
+        }
+    }
+
+    private func load(into view: PDFView) {
+        let url = fileURL
+        ICloudCoordinator.ensureDownloaded(url) { [weak view] in
+            view?.document = PDFDocument(url: url)
         }
     }
 }

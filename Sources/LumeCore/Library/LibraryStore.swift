@@ -39,7 +39,13 @@ public final class LibraryStore {
             return m
         }()
         meta.info = info
-        meta.tags = tagNames.map { tag(named: $0) }
+        // De-duplicate names before resolving Tags so we never try to create two
+        // Tags with the same unique `name` in one pass (the second `tag(named:)`
+        // can't yet see the first, unsaved one), which would make the save throw
+        // and silently drop the metadata.
+        var seen = Set<String>()
+        let uniqueNames = tagNames.filter { seen.insert($0).inserted }
+        meta.tags = uniqueNames.map { tag(named: $0) }
         try? context.save()
     }
 

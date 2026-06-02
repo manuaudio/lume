@@ -10,13 +10,7 @@ struct FileTreeView: View {
     var body: some View {
         ForEach(nodes) { node in
             if node.isDirectory {
-                DisclosureGroup {
-                    FileTreeView(nodes: model.children(of: node), model: model)
-                } label: {
-                    Label(node.name, systemImage: "folder")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.primary)
-                }
+                DirectoryRow(node: node, model: model)
             } else {
                 Button {
                     model.selectedFile = node.url
@@ -24,6 +18,34 @@ struct FileTreeView: View {
                     FileRow(node: node, isSelected: model.selectedFile == node.url)
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// A single directory row. Children are enumerated from disk lazily — only the
+/// first time the group is expanded — and then cached, so SwiftUI re-renders
+/// (and parent expansions) never re-hit the filesystem.
+private struct DirectoryRow: View {
+    let node: FileNode
+    let model: AppModel
+
+    @State private var isExpanded = false
+    @State private var children: [FileNode]?
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            if let children {
+                FileTreeView(nodes: children, model: model)
+            }
+        } label: {
+            Label(node.name, systemImage: "folder")
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary)
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded, children == nil {
+                children = model.children(of: node)
             }
         }
     }

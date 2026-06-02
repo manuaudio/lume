@@ -31,8 +31,21 @@ function post(type, payload) {
   }
 }
 
+// Debounce disk writes (~400ms) so we don't hammer the file on every keystroke.
+let changeTimer = null;
+let pendingText = null;
+function flushChange() {
+  changeTimer = null;
+  if (pendingText !== null) {
+    post("change", { text: pendingText });
+    pendingText = null;
+  }
+}
 const changeListener = EditorView.updateListener.of((u) => {
-  if (u.docChanged) post("change", { text: u.state.doc.toString() });
+  if (!u.docChanged) return;
+  pendingText = u.state.doc.toString();
+  if (changeTimer !== null) clearTimeout(changeTimer);
+  changeTimer = setTimeout(flushChange, 400);
 });
 
 window.Lume = {
@@ -54,6 +67,9 @@ window.Lume = {
         changeListener,
       ],
     });
+    // Cancel any pending debounced write from a previous document.
+    if (changeTimer !== null) { clearTimeout(changeTimer); changeTimer = null; }
+    pendingText = null;
     if (view) view.destroy();
     view = new EditorView({ state, parent: document.getElementById("editor") });
     post("ready", {});

@@ -58,6 +58,7 @@ struct ContentView: View {
         }
         .onAppear {
             model.libraryContext = context
+            model.applyLaunchEnvironment()
         }
         .onChange(of: model.selectedFile) { _, _ in
             refreshFavoriteState()

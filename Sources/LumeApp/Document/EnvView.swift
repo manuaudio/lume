@@ -12,6 +12,10 @@ struct EnvView: View {
     @State private var revealed: Set<String> = []
     @State private var rawMode = false
     @State private var rawText = ""
+    /// Set while `reload()` populates `rawText` so the programmatic assignment
+    /// does not trigger a (pointless, self-overwriting) disk write.
+    @State private var isLoading = false
+    @State private var writeTask: Task<Void, Never>?
 
     private var entries: [EnvEntry] { EnvFile.entries(from: lines) }
 
@@ -26,7 +30,8 @@ struct EnvView: View {
                     .scrollContentBackground(.hidden)
                     .padding(12)
                     .onChange(of: rawText) { _, new in
-                        model.write(new, to: fileURL)
+                        guard !isLoading else { return }
+                        scheduleRawWrite(new)
                     }
             } else if entries.isEmpty {
                 ContentUnavailableView("No variables", systemImage: "key",
@@ -66,8 +71,23 @@ struct EnvView: View {
     }
 
     private func reload() {
-        rawText = model.readFile(fileURL)
-        lines = EnvFile.parse(rawText)
+        isLoading = true
+        model.readFile(fileURL) { text in
+            rawText = text
+            lines = EnvFile.parse(text)
+            isLoading = false
+        }
+    }
+
+    /// Debounce raw-mode writes (~400ms) so we don't hammer the file on every
+    /// keystroke, matching the Markdown editor's debounced write behavior.
+    private func scheduleRawWrite(_ text: String) {
+        writeTask?.cancel()
+        writeTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            model.write(text, to: fileURL)
+        }
     }
 
     private func toggle(_ key: String) {

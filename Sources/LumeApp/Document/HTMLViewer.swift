@@ -8,15 +8,20 @@ struct HTMLViewer: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let view = WKWebView()
-        ICloudCoordinator.ensureDownloaded(fileURL)
-        view.loadFileURL(fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
+        load(into: view)
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         if view.url != fileURL {
-            ICloudCoordinator.ensureDownloaded(fileURL)
-            view.loadFileURL(fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
+            load(into: view)
+        }
+    }
+
+    private func load(into view: WKWebView) {
+        let url = fileURL
+        ICloudCoordinator.ensureDownloaded(url) { [weak view] in
+            view?.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
     }
 }
