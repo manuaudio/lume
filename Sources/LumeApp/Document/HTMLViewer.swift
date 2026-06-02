@@ -7,10 +7,7 @@ import WebKit
 struct HTMLViewer: View {
     let fileURL: URL
 
-    private var isCoworkArtifact: Bool {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return false }
-        return text.contains("id=\"cowork-artifact-meta\"") || text.contains("window.cowork")
-    }
+    @State private var isCoworkArtifact = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,12 +18,30 @@ struct HTMLViewer: View {
                         .font(.callout)
                     Spacer()
                 }
+                .foregroundStyle(.primary)
                 .padding(8)
                 .background(.yellow.opacity(0.18))
                 Divider()
             }
             WebContent(fileURL: fileURL)
         }
+        .task(id: fileURL) {
+            isCoworkArtifact = await Self.detectCowork(at: fileURL)
+        }
+    }
+
+    /// Reads only the first 8 KB off the main thread — the cowork-artifact-meta
+    /// script always sits in <head>, well within that window. Non-UTF8 or
+    /// unreadable files simply return false (no banner).
+    private static func detectCowork(at url: URL) async -> Bool {
+        await Task.detached(priority: .utility) {
+            guard let fh = try? FileHandle(forReadingFrom: url) else { return false }
+            defer { try? fh.close() }
+            let data = (try? fh.read(upToCount: 8192)) ?? Data()
+            guard let prefix = String(data: data, encoding: .utf8) else { return false }
+            return prefix.contains("id=\"cowork-artifact-meta\"")
+                || prefix.contains("window.cowork")
+        }.value
     }
 }
 
