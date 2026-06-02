@@ -10,7 +10,12 @@ let package = Package(
     ],
     targets: [
         .target(name: "LumeCore", path: "Sources/LumeCore"),
-        .executableTarget(name: "LumeApp", dependencies: ["LumeCore"], path: "Sources/LumeApp"),
+        .executableTarget(
+            name: "LumeApp",
+            dependencies: ["LumeCore"],
+            path: "Sources/LumeApp",
+            resources: [.copy("Resources/web")]
+        ),
         .testTarget(name: "LumeCoreTests", dependencies: ["LumeCore"], path: "Tests/LumeCoreTests"),
     ]
 )

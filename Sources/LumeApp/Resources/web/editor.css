@@ -1,0 +1,9 @@
+html, body, #editor { margin: 0; height: 100%; }
+body { background: var(--lume-bg, #ffffff); }
+.cm-editor { height: 100vh; font-size: 15px; }
+.cm-content { font-family: ui-monospace, "SF Mono", Menlo, monospace; padding: 16px; }
+.cm-editor.cm-focused { outline: none; }
+/* MarkEdit-style heading sizing for styled-source markdown */
+.cm-line .tok-heading1 { font-size: 1.6em; font-weight: 700; }
+.cm-line .tok-heading2 { font-size: 1.35em; font-weight: 700; }
+.cm-line .tok-heading3 { font-size: 1.15em; font-weight: 600; }
