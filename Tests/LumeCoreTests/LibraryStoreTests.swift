@@ -157,6 +157,20 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(store.migrateBookmarksToFavorites() == 0)
 }
 
+@MainActor @Test func migrateAssignsDistinctSortIndexes() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.addBookmark(path: "/a")
+    store.addBookmark(path: "/b")
+    store.migrateBookmarksToFavorites()
+
+    let favs = store.favorites().filter { $0.path == "/a" || $0.path == "/b" }
+        .sorted { $0.sortIndex < $1.sortIndex }
+    #expect(Set(favs.map(\.sortIndex)).count == 2)          // distinct
+    #expect(favs.map(\.path) == ["/a", "/b"])               // stable order
+}
+
 @MainActor @Test func pathsTaggedWithReturnsSet() throws {
     let (store, container) = try makeStore()
     defer { withExtendedLifetime(container) {} }

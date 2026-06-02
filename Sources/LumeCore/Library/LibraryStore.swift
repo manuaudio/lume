@@ -90,11 +90,12 @@ public final class LibraryStore {
     @discardableResult
     public func migrateBookmarksToFavorites() -> Int {
         let existing = bookmarks()
+        let base = favorites().count
         var created = 0
         for bm in existing {
             if favorite(for: bm.path) == nil {
                 context.insert(Favorite(path: bm.path, kindRaw: "folder",
-                                        sortIndex: favorites().count))
+                                        sortIndex: base + created))
                 created += 1
             }
             context.delete(bm)
