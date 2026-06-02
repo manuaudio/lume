@@ -84,6 +84,25 @@ public final class LibraryStore {
         return try? context.fetch(d).first
     }
 
+    /// One-time migration: every bookmarked folder becomes a folder `Favorite`
+    /// (pins unify onto Favorites), then the bookmark table is cleared so this is
+    /// idempotent. Returns how many NEW favorites were created.
+    @discardableResult
+    public func migrateBookmarksToFavorites() -> Int {
+        let existing = bookmarks()
+        var created = 0
+        for bm in existing {
+            if favorite(for: bm.path) == nil {
+                context.insert(Favorite(path: bm.path, kindRaw: "folder",
+                                        sortIndex: favorites().count))
+                created += 1
+            }
+            context.delete(bm)
+        }
+        try? context.save()
+        return created
+    }
+
     // MARK: Metadata (tags + notes)
 
     public func setMeta(path: String, info: String, tagNames: [String], displayName: String = "") {
@@ -119,6 +138,11 @@ public final class LibraryStore {
     public func files(taggedWith name: String) -> [FileMeta] {
         guard let tag = existingTag(named: name) else { return [] }
         return tag.files
+    }
+
+    /// The set of file paths carrying a given tag (for filtering the browser).
+    public func paths(taggedWith name: String) -> Set<String> {
+        Set(files(taggedWith: name).map(\.path))
     }
 
     // MARK: Tags
