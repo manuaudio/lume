@@ -1,2 +1,5 @@
 .build/
 .swiftpm/
+
+# Stray top-level executable from `swift build`/`swift run`
+/main
