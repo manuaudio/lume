@@ -14,20 +14,8 @@ struct ContentView: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
-            // Controlled HStack instead of `.inspector`: the document pane is
-            // flexible and the info panel a fixed trailing width, so the layout
-            // always compresses to fit the window — no overflow/clipping when
-            // the window isn't maximized.
-            HStack(spacing: 0) {
-                DocumentSurfaceView(model: model)
-                    .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
-                if model.showInfoPanel {
-                    Divider()
-                    InfoPanelView(model: model)
-                        .frame(width: 264)
-                        .frame(maxHeight: .infinity)
-                }
-            }
+            DocumentSurfaceView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
         .toolbar {
@@ -47,15 +35,6 @@ struct ContentView: View {
                 .help(isFavorited ? "Remove from Favorites" : "Add to Favorites")
                 .disabled(model.selectedFile == nil)
 
-                Spacer()
-
-                Button {
-                    withAnimation { model.showInfoPanel.toggle() }
-                } label: {
-                    Label("Info", systemImage: "sidebar.trailing")
-                }
-                .help("Toggle the info panel")
-                .symbolVariant(model.showInfoPanel ? .fill : .none)
             }
         }
         .onAppear {
@@ -82,7 +61,6 @@ struct ContentView: View {
         panel.message = "Choose a folder to work in"
         if panel.runModal() == .OK, let url = panel.url {
             model.openFolder(url)
-            model.sidebarMode = .browse
         }
     }
 
