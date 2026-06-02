@@ -76,7 +76,7 @@ struct LumeApp: App {
                 Button("Open / Drill In") {
                     post(.lumeOpenOrDrill)
                 }
-                .keyboardShortcut(.return, modifiers: [])
+                .keyboardShortcut(.downArrow, modifiers: .command)
 
                 Button("Go Up") {
                     post(.lumeDrillUp)
