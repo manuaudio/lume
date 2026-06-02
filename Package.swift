@@ -14,7 +14,7 @@ let package = Package(
             name: "LumeApp",
             dependencies: ["LumeCore"],
             path: "Sources/LumeApp",
-            resources: [.copy("Resources/web")]
+            resources: [.copy("Resources/web"), .copy("Resources/Lume.icns")]
         ),
         .testTarget(name: "LumeCoreTests", dependencies: ["LumeCore"], path: "Tests/LumeCoreTests"),
     ]

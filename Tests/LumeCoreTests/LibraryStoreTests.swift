@@ -136,3 +136,49 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(store.meta(for: "/a/b.md")?.tags.map(\.name) == ["personal"])
     #expect(store.files(taggedWith: "work").isEmpty)
 }
+
+@MainActor @Test func migrateBookmarksBecomeFolderFavorites() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.addBookmark(path: "/work")
+    store.addBookmark(path: "/docs")
+    store.addFavoriteFolder(path: "/work")   // already favorited too
+
+    let migratedCount = store.migrateBookmarksToFavorites()
+
+    // /docs was bookmark-only -> becomes a folder favorite; /work already was.
+    #expect(migratedCount == 1)
+    #expect(store.isFavorite(path: "/docs") == true)
+    #expect(store.favorites().first { $0.path == "/docs" }?.kindRaw == "folder")
+    // Bookmarks are cleared after migration so it never runs twice.
+    #expect(store.bookmarks().isEmpty)
+    // Running again is a no-op.
+    #expect(store.migrateBookmarksToFavorites() == 0)
+}
+
+@MainActor @Test func migrateAssignsDistinctSortIndexes() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.addBookmark(path: "/a")
+    store.addBookmark(path: "/b")
+    store.migrateBookmarksToFavorites()
+
+    let favs = store.favorites().filter { $0.path == "/a" || $0.path == "/b" }
+        .sorted { $0.sortIndex < $1.sortIndex }
+    #expect(Set(favs.map(\.sortIndex)).count == 2)          // distinct
+    #expect(favs.map(\.path) == ["/a", "/b"])               // stable order
+}
+
+@MainActor @Test func pathsTaggedWithReturnsSet() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a/b.md", info: "", tagNames: ["work"])
+    store.setMeta(path: "/a/c.md", info: "", tagNames: ["work"])
+    store.setMeta(path: "/a/d.md", info: "", tagNames: ["home"])
+
+    #expect(store.paths(taggedWith: "work") == ["/a/b.md", "/a/c.md"])
+    #expect(store.paths(taggedWith: "missing").isEmpty)
+}

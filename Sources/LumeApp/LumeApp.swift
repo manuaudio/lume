@@ -4,7 +4,12 @@ import AppKit
 import LumeCore
 
 extension Notification.Name {
-    static let lumeOpenFolder = Notification.Name("lumeOpenFolder")
+    static let lumeOpenFolder  = Notification.Name("lumeOpenFolder")
+    static let lumeRename      = Notification.Name("lumeRename")
+    static let lumePin         = Notification.Name("lumePin")
+    static let lumeDrillUp     = Notification.Name("lumeDrillUp")
+    static let lumeOpenOrDrill = Notification.Name("lumeOpenOrDrill")
+    static let lumeFocusFilter = Notification.Name("lumeFocusFilter")
 }
 
 /// Forces the SPM executable to behave like a regular foreground GUI app.
@@ -13,6 +18,13 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Use the bundled Lume icon for the Dock/⌘-Tab even when run as a bare
+        // SPM executable (no Info.plist). A real .app bundle also sets it via
+        // CFBundleIconFile, but this covers `swift run` too.
+        if let url = Bundle.module.url(forResource: "Lume", withExtension: "icns"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         NSApp.activate(ignoringOtherApps: true)
         // Persist window size/position across launches (friendly native behavior).
         DispatchQueue.main.async {
@@ -47,6 +59,10 @@ struct LumeApp: App {
         }
     }()
 
+    private func post(_ name: Notification.Name) {
+        NotificationCenter.default.post(name: name, object: nil)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -60,9 +76,37 @@ struct LumeApp: App {
             // ⌘O — always available to open a folder in Browse.
             CommandGroup(after: .newItem) {
                 Button("Open Folder…") {
-                    NotificationCenter.default.post(name: .lumeOpenFolder, object: nil)
+                    post(.lumeOpenFolder)
                 }
                 .keyboardShortcut("o", modifiers: .command)
+            }
+            CommandMenu("Navigate") {
+                Button("Open / Drill In") {
+                    post(.lumeOpenOrDrill)
+                }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+
+                Button("Go Up") {
+                    post(.lumeDrillUp)
+                }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+
+                Button("Find in Sidebar") {
+                    post(.lumeFocusFilter)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Divider()
+
+                Button("Rename") {
+                    post(.lumeRename)
+                }
+                .keyboardShortcut("r", modifiers: .command)
+
+                Button("Pin / Unpin") {
+                    post(.lumePin)
+                }
+                .keyboardShortcut("d", modifiers: .command)
             }
         }
     }

@@ -1,2 +1,10 @@
 .build/
 .swiftpm/
+
+# Stray top-level executable from `swift build`/`swift run`
+/main
+
+# Built app bundle + icon intermediates
+/dist/
+tools/Lume.iconset/
+tools/icon-preview.png

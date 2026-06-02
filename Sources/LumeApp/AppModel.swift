@@ -3,29 +3,43 @@ import SwiftData
 import Observation
 import LumeCore
 
-/// Observable app state shared across the three panes.
-enum SidebarMode: String, CaseIterable, Identifiable {
-    case favorites, browse
-    var id: String { rawValue }
-    var label: String { self == .favorites ? "Favorites" : "Browse" }
-    var systemImage: String { self == .favorites ? "star" : "folder" }
-}
-
 @MainActor
 @Observable
 final class AppModel {
     var rootFolder: URL?
     var tree: [FileNode] = []
     var selectedFile: URL?
-    var showInfoPanel = true
     var activeTagFilter: String?
-    var sidebarMode: SidebarMode = .browse
+
+    // Browser
+    var browseRoot: URL? { didSet { persistBrowseRoot() } }
+    var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
+    var expandedPaths: Set<String> = []
+    var selectedRowID: String?
+    var browseFilter: String = ""
+
+    // Inline editing (which row is mid-edit)
+    var renamingPath: String?
+    var notesOpenPath: String?
 
     /// Injected once from `ContentView` so toolbar/sidebar actions can reach
     /// the SwiftData store without each view re-deriving it.
     @ObservationIgnored var libraryContext: ModelContext?
 
     @ObservationIgnored let files: FileServicing = FileService()
+
+    init() {
+        filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
+        if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
+            browseRoot = URL(fileURLWithPath: p)
+        } else {
+            browseRoot = FileManager.default.homeDirectoryForCurrentUser
+        }
+    }
+
+    private func persistBrowseRoot() {
+        UserDefaults.standard.set(browseRoot?.path, forKey: "lume.browseRoot")
+    }
 
     // MARK: Folder navigation
 
@@ -85,20 +99,50 @@ final class AppModel {
         }
     }
 
-    /// Seed Finder-style starting locations the first run, so Browse can reach
-    /// the whole filesystem, not just one opened folder.
-    func seedDefaultBookmarksIfNeeded() {
-        guard let store, store.bookmarks().isEmpty else { return }
+    /// First-run setup: migrate any old bookmarks to pins, then seed default
+    /// pinned locations if there are no favorites yet.
+    func seedAndMigratePins() {
+        guard let store else { return }
+        store.migrateBookmarksToFavorites()
+        guard store.favorites().isEmpty else { return }
         let fm = FileManager.default
-        store.addBookmark(path: homeURL.path)
+        store.addFavoriteFolder(path: homeURL.path)
         let candidates = [
             homeURL.appendingPathComponent("Documents"),
             homeURL.appendingPathComponent("Desktop"),
             homeURL.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
         ]
         for url in candidates where fm.fileExists(atPath: url.path) {
-            store.addBookmark(path: url.path)
+            store.addFavoriteFolder(path: url.path)
         }
+    }
+
+    // MARK: Browser drill navigation
+
+    func drillInto(_ url: URL) {
+        browseRoot = url
+        expandedPaths.removeAll()
+        browseFilter = ""
+    }
+
+    func toggleExpanded(_ url: URL) {
+        if expandedPaths.contains(url.path) { expandedPaths.remove(url.path) }
+        else { expandedPaths.insert(url.path) }
+    }
+
+    /// `cd ..` — stops at filesystem root.
+    func drillUp() {
+        guard let root = browseRoot else { return }
+        let parent = root.deletingLastPathComponent()
+        if parent.path != root.path { browseRoot = parent }
+    }
+
+    // MARK: Pins (unified — a pin IS a favorite, file or folder)
+
+    func isPinned(_ url: URL) -> Bool { isFavorite(url) }
+
+    func togglePin(_ url: URL, isDirectory: Bool) {
+        toggleFavorite(url, isDirectory: isDirectory)
     }
 
     /// Open a folder (and optionally select a file) from environment variables,
@@ -107,7 +151,9 @@ final class AppModel {
     func applyLaunchEnvironment() {
         let env = ProcessInfo.processInfo.environment
         if let folder = env["LUME_OPEN_FOLDER"], !folder.isEmpty {
-            openFolder(URL(fileURLWithPath: folder))
+            let url = URL(fileURLWithPath: folder)
+            openFolder(url)
+            browseRoot = url
         }
         if let file = env["LUME_OPEN_FILE"], !file.isEmpty {
             selectedFile = URL(fileURLWithPath: file)
@@ -135,6 +181,31 @@ final class AppModel {
 
     func write(_ text: String, to url: URL) {
         try? files.write(text, to: url)
+    }
+
+    // MARK: Selected-row helpers (for keyboard commands)
+
+    /// The URL of the currently selected row (file or folder).
+    var selectedRowURL: URL? {
+        guard let id = selectedRowID else { return nil }
+        return SidebarRow.decode(id)?.url
+    }
+
+    private var selectedRowIsDirectory: Bool {
+        guard let id = selectedRowID else { return false }
+        return SidebarRow.decode(id)?.isDirectory ?? false
+    }
+
+    func renameSelected() { renamingPath = selectedRowURL?.path }
+
+    func pinSelected() {
+        guard let url = selectedRowURL else { return }
+        togglePin(url, isDirectory: selectedRowIsDirectory)
+    }
+
+    func openOrDrillSelected() {
+        guard let url = selectedRowURL else { return }
+        if selectedRowIsDirectory { drillInto(url) } else { selectedFile = url }
     }
 
     // MARK: Derived
