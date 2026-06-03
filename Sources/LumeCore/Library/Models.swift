@@ -47,12 +47,17 @@ import SwiftData
     /// Optional user-given label shown instead of the filename (e.g. name a
     /// `.env` "Chief — prod keys" so 10 `.env` files are distinguishable).
     public var displayName: String
+    /// When true, this path is hidden from both sidebar regions unless the
+    /// global "Show hidden" toggle is on. Additive with a default, so SwiftData
+    /// migrates existing stores automatically.
+    public var hidden: Bool
     @Relationship(inverse: \Tag.files) public var tags: [Tag]
 
-    public init(path: String, info: String = "", displayName: String = "", tags: [Tag] = []) {
+    public init(path: String, info: String = "", displayName: String = "", hidden: Bool = false, tags: [Tag] = []) {
         self.path = path
         self.info = info
         self.displayName = displayName
+        self.hidden = hidden
         self.tags = tags
     }
 }
