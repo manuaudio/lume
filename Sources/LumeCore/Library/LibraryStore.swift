@@ -130,6 +130,27 @@ public final class LibraryStore {
         return try? context.fetch(d).first
     }
 
+    /// Set the hidden flag for each path, upserting `FileMeta` (reusing the
+    /// meta-or-insert pattern from `setMeta`) so other metadata is preserved.
+    /// Saves once after all paths are updated.
+    public func setHidden(_ hidden: Bool, paths: [String]) {
+        for path in paths {
+            let meta = meta(for: path) ?? {
+                let m = FileMeta(path: path)
+                context.insert(m)
+                return m
+            }()
+            meta.hidden = hidden
+        }
+        try? context.save()
+    }
+
+    /// All paths currently marked hidden.
+    public func hiddenPaths() -> Set<String> {
+        let d = FetchDescriptor<FileMeta>(predicate: #Predicate { $0.hidden })
+        return Set((try? context.fetch(d))?.map(\.path) ?? [])
+    }
+
     /// The user-given label for a path, or nil if none set.
     public func displayName(for path: String) -> String? {
         let name = meta(for: path)?.displayName ?? ""

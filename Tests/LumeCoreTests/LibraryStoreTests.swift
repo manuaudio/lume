@@ -182,3 +182,33 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(store.paths(taggedWith: "work") == ["/a/b.md", "/a/c.md"])
     #expect(store.paths(taggedWith: "missing").isEmpty)
 }
+
+@MainActor @Test func hideSetsFlagAndHiddenPathsReflectsIt() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    #expect(store.hiddenPaths().isEmpty)
+
+    store.setHidden(true, paths: ["/p/a.txt", "/p/b.txt"])
+    #expect(store.hiddenPaths() == ["/p/a.txt", "/p/b.txt"])
+    #expect(store.meta(for: "/p/a.txt")?.hidden == true)
+
+    // Un-hiding one path removes only that path from the set.
+    store.setHidden(false, paths: ["/p/a.txt"])
+    #expect(store.hiddenPaths() == ["/p/b.txt"])
+    #expect(store.meta(for: "/p/a.txt")?.hidden == false)
+}
+
+@MainActor @Test func hidePreservesExistingMeta() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/p/c.txt", info: "note", tagNames: ["work"], displayName: "C")
+    store.setHidden(true, paths: ["/p/c.txt"])
+
+    let m = store.meta(for: "/p/c.txt")
+    #expect(m?.hidden == true)
+    #expect(m?.info == "note")
+    #expect(m?.displayName == "C")
+    #expect(m?.tags.map(\.name) == ["work"])
+}
