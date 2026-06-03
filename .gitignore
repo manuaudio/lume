@@ -8,3 +8,6 @@
 /dist/
 tools/Lume.iconset/
 tools/icon-preview.png
+
+# Superpowers brainstorming companion
+.superpowers/
