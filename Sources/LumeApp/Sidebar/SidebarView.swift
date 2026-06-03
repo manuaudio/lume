@@ -33,8 +33,9 @@ struct SidebarView: View {
         Binding(get: { model.browseFilter }, set: { model.browseFilter = $0 })
     }
 
-    /// Favorites shown in the pinned list, honoring the Show-hidden toggle.
-    /// Shared by the `ForEach` and `.onMove` so reorder indices stay correct.
+    /// Favorites shown in the pinned list, honoring the FAVORITES show-hidden
+    /// toggle (`showPinnedHidden`). Shared by the `ForEach` and `.onMove` so
+    /// reorder indices stay correct.
     private var visibleFavorites: [Favorite] {
         model.showPinnedHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
     }
@@ -247,6 +248,8 @@ struct SidebarView: View {
         }
     }
 }
+
+// MARK: - SectionHeader
 
 /// A section header with a trailing borderless eye toggle. Used identically by
 /// the FAVORITES and OPEN FOLDER regions so both controls look the same.

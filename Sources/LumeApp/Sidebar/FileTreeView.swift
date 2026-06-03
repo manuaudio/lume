@@ -25,10 +25,16 @@ struct FileTreeView: View {
         // `ForEach` whose collection is initially empty never fires `.onAppear`,
         // so relying on it to kick off the first load left the tree permanently
         // empty. `.onChange(of: parent)` still handles re-roots on the same view.
-        // Browser shows reality (Finder dotfiles gated by the browser toggle);
-        // pinned is a curation surface and never reveals OS-hidden files here.
-        let includeHidden = (section == .browser) ? model.showBrowserHidden : false
-        _children = State(initialValue: model.children(of: parent, includeHidden: includeHidden))
+        _children = State(initialValue: model.children(of: parent,
+                                                        includeHidden: Self.includeHidden(section: section, model: model)))
+    }
+
+    /// Whether the on-disk enumeration should include Finder-hidden files.
+    /// Browser shows reality (dotfiles gated by the browser toggle); the pinned
+    /// region is a curation surface and never reveals OS-hidden files here.
+    /// Shared by the `_children` seed and `reload()` so the policy can't drift.
+    private static func includeHidden(section: SidebarSection, model: AppModel) -> Bool {
+        section == .browser && model.showBrowserHidden
     }
 
     var body: some View {
@@ -50,6 +56,9 @@ struct FileTreeView: View {
         // Re-enumerate when the browser hidden toggle flips so dotfiles
         // appear/disappear. Harmless no-op for the pinned tree (it always
         // enumerates with includeHidden: false; reload() re-applies that).
+        // No matching watcher for `showPinnedHidden` is needed: that flag only
+        // affects the `visibleChildren` filter, which re-evaluates reactively
+        // via @Observable tracking — no new filesystem enumeration required.
         .onChange(of: model.showBrowserHidden) { _, _ in reload() }
     }
 
@@ -73,8 +82,8 @@ struct FileTreeView: View {
     }
 
     private func reload() {
-        let includeHidden = (section == .browser) ? model.showBrowserHidden : false
-        children = model.children(of: parent, includeHidden: includeHidden)
+        children = model.children(of: parent,
+                                  includeHidden: Self.includeHidden(section: section, model: model))
     }
 }
 
