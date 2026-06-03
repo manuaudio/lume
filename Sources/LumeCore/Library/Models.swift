@@ -48,9 +48,11 @@ import SwiftData
     /// `.env` "Chief — prod keys" so 10 `.env` files are distinguishable).
     public var displayName: String
     /// When true, this path is hidden from both sidebar regions unless the
-    /// global "Show hidden" toggle is on. Additive with a default, so SwiftData
-    /// migrates existing stores automatically.
-    public var hidden: Bool
+    /// global "Show hidden" toggle is on. The property-level default (`= false`)
+    /// is what lets SwiftData lightweight-migrate an existing store: without it
+    /// the new non-optional attribute is "mandatory" with no value for old rows
+    /// and migration fails fatally at launch.
+    public var hidden: Bool = false
     @Relationship(inverse: \Tag.files) public var tags: [Tag]
 
     public init(path: String, info: String = "", displayName: String = "", hidden: Bool = false, tags: [Tag] = []) {

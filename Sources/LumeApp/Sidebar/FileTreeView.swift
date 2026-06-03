@@ -11,7 +11,22 @@ struct FileTreeView: View {
     let section: SidebarSection
     var depth: Int = 0
 
-    @State private var children: [FileNode] = []
+    @State private var children: [FileNode]
+
+    init(parent: URL, model: AppModel, names: [String: String] = [:],
+         hiddenPaths: Set<String>, section: SidebarSection, depth: Int = 0) {
+        self.parent = parent
+        self.model = model
+        self.names = names
+        self.hiddenPaths = hiddenPaths
+        self.section = section
+        self.depth = depth
+        // Seed children at construction so the first render shows them. A bare
+        // `ForEach` whose collection is initially empty never fires `.onAppear`,
+        // so relying on it to kick off the first load left the tree permanently
+        // empty. `.onChange(of: parent)` still handles re-roots on the same view.
+        _children = State(initialValue: model.children(of: parent))
+    }
 
     var body: some View {
         ForEach(visibleChildren) { node in
