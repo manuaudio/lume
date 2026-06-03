@@ -7,6 +7,8 @@ struct FileTreeView: View {
     let parent: URL
     let model: AppModel
     var names: [String: String] = [:]
+    let hiddenPaths: Set<String>
+    let section: SidebarSection
     var depth: Int = 0
 
     @State private var children: [FileNode] = []
@@ -14,13 +16,15 @@ struct FileTreeView: View {
     var body: some View {
         ForEach(visibleChildren) { node in
             SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
-                           section: .browser, depth: depth,
-                           model: model, names: names)
+                           section: section, depth: depth,
+                           model: model, names: names,
+                           hiddenPaths: hiddenPaths)
                 .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
-                                section: .browser).id)
+                                section: section).id)
 
             if node.isDirectory, model.expandedPaths.contains(node.url.path) {
-                FileTreeView(parent: node.url, model: model, names: names, depth: depth + 1)
+                FileTreeView(parent: node.url, model: model, names: names,
+                             hiddenPaths: hiddenPaths, section: section, depth: depth + 1)
             }
         }
         .onAppear { reload() }
@@ -30,6 +34,9 @@ struct FileTreeView: View {
     private var visibleChildren: [FileNode] {
         var nodes = children
         if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
+        if !model.showHidden {
+            nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
+        }
         if let tag = model.activeTagFilter {
             let allowed = model.store?.paths(taggedWith: tag) ?? []
             // Keep directories (so you can navigate into them) + tagged files.
@@ -55,9 +62,11 @@ struct SidebarItemRow: View {
     var depth: Int = 0
     let model: AppModel
     var names: [String: String] = [:]
+    var hiddenPaths: Set<String> = []
 
     private var isExpanded: Bool { model.expandedPaths.contains(url.path) }
     private var isRenaming: Bool { model.renamingPath == url.path }
+    private var isHidden: Bool { hiddenPaths.contains(url.path) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -86,20 +95,33 @@ struct SidebarItemRow: View {
                             autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 }
                 Spacer(minLength: 0)
+                if model.showHidden, isHidden {
+                    Button { model.unhide(url) } label: { Image(systemName: "eye") }
+                        .buttonStyle(.borderless)
+                        .help("Un-hide")
+                }
             }
+            .opacity(isHidden ? 0.45 : 1)
             if !isDirectory, model.selectedFile == url, !isRenaming {
                 RowMetaView(url: url, model: model)
             }
         }
         .padding(.leading, CGFloat(depth) * 12)
         .contentShape(Rectangle())
+        .draggable(url)
         .onTapGesture(count: 2) {
             guard isDirectory else { return }
             model.expandedPaths.remove(url.path)   // undo the single-tap's pending expand
             model.drillInto(url)
         }
         .onTapGesture(count: 1) { if isDirectory { model.toggleExpanded(url) } else { model.selectedFile = url } }
-        .contextMenu { RowMenu(url: url, isDirectory: isDirectory, model: model) }
+        .contextMenu {
+            RowMenu(url: url,
+                    isDirectory: isDirectory,
+                    rowID: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
+                    hiddenPaths: hiddenPaths,
+                    model: model)
+        }
     }
 }
 
@@ -164,28 +186,77 @@ struct FileRow: View {
 struct RowMenu: View {
     let url: URL
     let isDirectory: Bool
+    let rowID: String
+    let hiddenPaths: Set<String>
     let model: AppModel
 
+    /// Right-clicking a row outside the current selection should act on that one
+    /// row (standard macOS behavior): adopt it as the selection first.
+    private func ensureSelected() {
+        if !model.selectedRowIDs.contains(rowID) {
+            model.selectedRowIDs = [rowID]
+        }
+    }
+
+    private var multi: Bool { model.selectedRowIDs.count > 1 }
+
     var body: some View {
-        if isDirectory {
-            Button("Open", systemImage: "arrow.right.circle") { model.drillInto(url) }
-            Button("Expand / Collapse", systemImage: "chevron.right") { model.toggleExpanded(url) }
-        } else {
-            Button("Open", systemImage: "doc.text") { model.selectedFile = url }
-        }
-        Divider()
-        let pinned = model.isPinned(url)
-        Button(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") {
-            model.togglePin(url, isDirectory: isDirectory)
-        }
-        Button("Rename…", systemImage: "pencil") { model.renamingPath = url.path }
-        Button("Edit Tags / Notes…", systemImage: "tag") {
-            model.selectedFile = url
-            model.notesOpenPath = url.path
-        }
-        Divider()
-        Button("Reveal in Finder", systemImage: "magnifyingglass") {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+        Group {
+            if isDirectory && !multi {
+                Button("Open", systemImage: "arrow.right.circle") {
+                    ensureSelected(); model.drillInto(url)
+                }
+                Button("Expand / Collapse", systemImage: "chevron.right") {
+                    model.toggleExpanded(url)
+                }
+            } else if !multi {
+                Button("Open", systemImage: "doc.text") {
+                    ensureSelected(); model.selectedFile = url
+                }
+            }
+
+            Divider()
+
+            Button("Copy Path\(multi ? "s" : "")", systemImage: "doc.on.clipboard") {
+                ensureSelected(); model.copyPaths()
+            }
+            .keyboardShortcut("c", modifiers: [.option, .command])
+
+            let allHidden = model.selectionIsAllHidden(hiddenPaths)
+                || (model.selectedRowIDs.isEmpty && hiddenPaths.contains(url.path))
+            Button(allHidden ? "Un-hide" : "Hide",
+                   systemImage: allHidden ? "eye" : "eye.slash") {
+                ensureSelected(); model.setHiddenForSelection(!allHidden)
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+
+            Button("Edit Tags…", systemImage: "tag") {
+                ensureSelected()
+                if multi {
+                    model.notesOpenPath = nil
+                    model.editingTagsForSelection = true
+                } else {
+                    model.selectedFile = url
+                    model.notesOpenPath = url.path
+                }
+            }
+
+            if !multi {
+                Button("Rename…", systemImage: "pencil") {
+                    ensureSelected(); model.renamingPath = url.path
+                }
+            }
+
+            Button("Unpin", systemImage: "pin.slash") {
+                ensureSelected(); model.unpinSelection()
+            }
+
+            Divider()
+
+            Button("Reveal in Finder", systemImage: "magnifyingglass") {
+                ensureSelected()
+                NSWorkspace.shared.activateFileViewerSelecting(model.selectedURLs)
+            }
         }
     }
 }

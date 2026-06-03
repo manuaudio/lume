@@ -18,8 +18,14 @@ struct SidebarView: View {
             allMeta.filter { !$0.displayName.isEmpty }.map { ($0.path, $0.displayName) })
     }
 
-    private var selection: Binding<String?> {
-        Binding(get: { model.selectedRowID }, set: { model.selectedRowID = $0 })
+    private var selection: Binding<Set<String>> {
+        Binding(get: { model.selectedRowIDs }, set: { model.selectedRowIDs = $0 })
+    }
+
+    /// Paths flagged hidden, derived reactively from @Query so toggling Hide
+    /// updates both regions immediately (same pattern as `names`).
+    private var hiddenPaths: Set<String> {
+        Set(allMeta.filter { $0.hidden }.map { $0.path })
     }
 
     private var filter: Binding<String> {
@@ -34,26 +40,34 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { topBar }
-        .onChange(of: model.selectedRowID) { _, id in openIfFile(id) }
+        .background(ModifierMonitor(pathPeek: Binding(get: { model.pathPeek },
+                                                      set: { model.pathPeek = $0 })))
+        .sheet(isPresented: Binding(get: { model.editingTagsForSelection },
+                                    set: { model.editingTagsForSelection = $0 })) {
+            MultiTagSheet(model: model,
+                          isPresented: Binding(get: { model.editingTagsForSelection },
+                                               set: { model.editingTagsForSelection = $0 }))
+        }
+        .onChange(of: model.selectedRowIDs) { _, _ in model.openIfSingleFileSelected() }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
         // notes editors. Each returns `.handled` only when it acts.
         .background(QLHost(controller: QuickLook.shared))
         .onKeyPress(.init("/")) { filterFocused = true; return .handled }
         .onKeyPress(.space) {
-            guard let id = model.selectedRowID,
+            guard let id = model.soleSelectedRowID,
                   let row = SidebarRow.decode(id), !row.isDirectory else { return .ignored }
             QuickLook.shared.show(row.url)
             return .handled
         }
         .onKeyPress(.rightArrow) {
-            guard let id = model.selectedRowID,
+            guard let id = model.soleSelectedRowID,
                   let row = SidebarRow.decode(id), row.isDirectory else { return .ignored }
             model.expandedPaths.insert(row.url.path)
             return .handled
         }
         .onKeyPress(.leftArrow) {
-            guard let id = model.selectedRowID,
+            guard let id = model.soleSelectedRowID,
                   let row = SidebarRow.decode(id), row.isDirectory,
                   model.expandedPaths.contains(row.url.path) else { return .ignored }
             model.expandedPaths.remove(row.url.path)
@@ -73,6 +87,12 @@ struct SidebarView: View {
                 Toggle(isOn: Binding(get: { model.filesOnly },
                                      set: { model.filesOnly = $0 })) {
                     Label("Files only", systemImage: "doc")
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                Toggle(isOn: Binding(get: { model.showHidden },
+                                     set: { model.showHidden = $0 })) {
+                    Label("Show hidden", systemImage: "eye.slash")
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
@@ -111,8 +131,13 @@ struct SidebarView: View {
 
     // MARK: Pinned
 
+    private var openFolderTitle: String {
+        let name = model.browseRoot?.lastPathComponent ?? ""
+        return name.isEmpty ? "OPEN FOLDER" : "OPEN FOLDER · \(name)"
+    }
+
     @ViewBuilder private var pinnedSection: some View {
-        Section("Pinned") {
+        Section("FAVORITES") {
             if favorites.isEmpty {
                 Text("Right-click any file or folder to pin it.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -123,7 +148,8 @@ struct SidebarView: View {
                     SidebarItemRow(url: url,
                                    isDirectory: fav.kindRaw == "folder",
                                    section: .pinned, depth: 0,
-                                   model: model, names: names)
+                                   model: model, names: names,
+                                   hiddenPaths: hiddenPaths)
                         .tag(SidebarRow(url: url, isDirectory: fav.kindRaw == "folder",
                                         section: .pinned).id)
                 }
@@ -155,38 +181,41 @@ struct SidebarView: View {
     // MARK: Browser
 
     @ViewBuilder private var browserSection: some View {
-        Section {
+        Section(openFolderTitle) {
+            pathPeekBar
             if let root = model.browseRoot {
-                FileTreeView(parent: root, model: model, names: names, depth: 0)
+                FileTreeView(parent: root, model: model, names: names,
+                             hiddenPaths: hiddenPaths, section: .browser, depth: 0)
+                    .opacity(model.pathPeek ? 0.4 : 1)
             }
-        } header: {
-            breadcrumb
         }
     }
 
-    private var breadcrumb: some View {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let segs = model.browseRoot.map { Breadcrumb.segments(for: $0, home: home) } ?? []
-        return HStack(spacing: 4) {
-            Button { model.drillUp() } label: { Image(systemName: "chevron.up") }
-                .buttonStyle(.borderless)
-                .help("Go up (⌘↑)")
-            ForEach(Array(segs.enumerated()), id: \.element.id) { i, seg in
-                if i > 0 { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary) }
-                Button(seg.label) { model.drillInto(seg.url) }
+    /// Transient ancestor path, shown only while ⌃ is held (model.pathPeek).
+    /// Clicking a chip re-roots and the bar collapses; releasing ⌃ collapses it.
+    @ViewBuilder private var pathPeekBar: some View {
+        if model.pathPeek, let root = model.browseRoot {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let segs = Breadcrumb.segments(for: root, home: home)
+            HStack(spacing: 4) {
+                ForEach(Array(segs.enumerated()), id: \.element.id) { i, seg in
+                    if i > 0 {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Button(seg.label) {
+                        model.drillInto(seg.url)
+                    }
                     .buttonStyle(.borderless)
                     .lineLimit(1)
                     .foregroundStyle(i == segs.count - 1 ? .primary : .secondary)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.bar)
         }
-        .font(.caption)
-    }
-
-    // MARK: Selection → open files
-
-    private func openIfFile(_ id: String?) {
-        guard let id, let row = SidebarRow.decode(id), !row.isDirectory else { return }
-        model.selectedFile = row.url
     }
 }
