@@ -143,7 +143,10 @@ struct SidebarView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                ForEach(favorites) { fav in
+                let visibleFavs = model.showHidden
+                    ? favorites
+                    : favorites.filter { !hiddenPaths.contains($0.path) }
+                ForEach(visibleFavs) { fav in
                     let url = URL(fileURLWithPath: fav.path)
                     SidebarItemRow(url: url,
                                    isDirectory: fav.kindRaw == "folder",

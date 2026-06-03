@@ -118,6 +118,7 @@ struct SidebarItemRow: View {
         .contextMenu {
             RowMenu(url: url,
                     isDirectory: isDirectory,
+                    section: section,
                     rowID: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
                     hiddenPaths: hiddenPaths,
                     model: model)
@@ -186,6 +187,7 @@ struct FileRow: View {
 struct RowMenu: View {
     let url: URL
     let isDirectory: Bool
+    let section: SidebarSection
     let rowID: String
     let hiddenPaths: Set<String>
     let model: AppModel
@@ -247,8 +249,15 @@ struct RowMenu: View {
                 }
             }
 
-            Button("Unpin", systemImage: "pin.slash") {
-                ensureSelected(); model.unpinSelection()
+            if section == .browser && !multi {
+                Button(model.isPinned(url) ? "Unpin" : "Pin",
+                       systemImage: model.isPinned(url) ? "pin.slash" : "pin") {
+                    ensureSelected(); model.togglePin(url, isDirectory: isDirectory)
+                }
+            } else {
+                Button("Unpin", systemImage: "pin.slash") {
+                    ensureSelected(); model.unpinSelection()
+                }
             }
 
             Divider()
