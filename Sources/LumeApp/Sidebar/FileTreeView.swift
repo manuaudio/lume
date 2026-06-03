@@ -81,7 +81,8 @@ struct SidebarItemRow: View {
                 } else {
                     FileRow(url: url,
                             kind: FileKind.detect(filename: url.lastPathComponent),
-                            name: names[url.path])
+                            name: names[url.path],
+                            autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 }
                 Spacer(minLength: 0)
             }
@@ -101,15 +102,32 @@ struct SidebarItemRow: View {
     }
 }
 
-/// A leaf file row: kind-tinted icon + middle-truncated name.
+/// A leaf file row: kind-tinted icon + effective name, with the real filename
+/// shown muted alongside whenever the label differs from it.
 struct FileRow: View {
     let url: URL
     let kind: FileKind
-    var name: String? = nil
+    var name: String? = nil       // user override (FileMeta.displayName), if any
+    var autoName: String? = nil   // parent-folder auto-name (Pinned context only)
+
+    /// Override > auto-name > real filename.
+    private var effectiveName: String { name ?? autoName ?? url.lastPathComponent }
 
     var body: some View {
         Label {
-            Text(name ?? url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+            HStack(spacing: 6) {
+                Text(effectiveName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if effectiveName != url.lastPathComponent {
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(-1)   // give up space first when the row is tight
+                }
+            }
         } icon: {
             Image(systemName: icon(for: kind))
                 .symbolRenderingMode(.hierarchical)
