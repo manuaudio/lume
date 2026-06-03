@@ -81,12 +81,12 @@ final class AppModel {
         tree = (try? files.enumerate(root)) ?? []
     }
 
-    func children(of node: FileNode) -> [FileNode] {
-        (try? files.enumerate(node.url)) ?? []
+    func children(of node: FileNode, includeHidden: Bool = false) -> [FileNode] {
+        (try? files.enumerate(node.url, includeHidden: includeHidden)) ?? []
     }
 
-    func children(of url: URL) -> [FileNode] {
-        (try? files.enumerate(url)) ?? []
+    func children(of url: URL, includeHidden: Bool = false) -> [FileNode] {
+        (try? files.enumerate(url, includeHidden: includeHidden)) ?? []
     }
 
     // MARK: Favorites

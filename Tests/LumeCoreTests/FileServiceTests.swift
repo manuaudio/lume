@@ -45,3 +45,31 @@ private func makeTempDir() throws -> URL {
     #expect(names == ["clients", ".env", "b.md"])
     #expect(nodes.first?.isDirectory == true)
 }
+
+@Test func enumerateIncludeHiddenRevealsDotfilesButNotNoise() throws {
+    let dir = try makeTempDir()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let fm = FileManager.default
+    try "x".write(to: dir.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+    try "x".write(to: dir.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+    try "x".write(to: dir.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    try "x".write(to: dir.appendingPathComponent(".DS_Store"), atomically: true, encoding: .utf8)
+    try fm.createDirectory(at: dir.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+    try fm.createDirectory(at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try fm.createDirectory(at: dir.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+    try fm.createDirectory(at: dir.appendingPathComponent("clients"), withIntermediateDirectories: true)
+
+    let names = try FileService().enumerate(dir, includeHidden: true).map { $0.url.lastPathComponent }
+
+    // Dotfiles/dotfolders are now revealed…
+    #expect(names.contains(".claude"))
+    #expect(names.contains(".gitignore"))
+    #expect(names.contains(".env"))
+    // …but explicit noise stays filtered even when showing hidden.
+    #expect(!names.contains(".DS_Store"))
+    #expect(!names.contains("node_modules"))
+    #expect(!names.contains(".git"))
+    #expect(!names.contains(".build"))
+    // Folders first (alpha incl. dotfolders), then files (alpha).
+    #expect(names == [".claude", "clients", ".env", ".gitignore", "b.md"])
+}

@@ -1,20 +1,31 @@
 import Foundation
 
 public protocol FileServicing: Sendable {
-    func enumerate(_ directory: URL) throws -> [FileNode]
+    /// List a directory's children. When `includeHidden` is true, filesystem
+    /// dotfiles (`.env`, `.claude`, `.gitignore`, …) are revealed; either way the
+    /// always-noise names below are filtered.
+    func enumerate(_ directory: URL, includeHidden: Bool) throws -> [FileNode]
     func read(_ url: URL) throws -> String
     func write(_ text: String, to url: URL) throws
 }
 
+public extension FileServicing {
+    /// Convenience: enumerate with dotfiles hidden (the default tree view).
+    func enumerate(_ directory: URL) throws -> [FileNode] {
+        try enumerate(directory, includeHidden: false)
+    }
+}
+
 public struct FileService: FileServicing {
-    /// Names that are never shown in the tree.
+    /// Names that are never shown in the tree, even with "Show hidden" on —
+    /// pure noise the user never curates.
     private static let ignoredNames: Set<String> = [
         ".DS_Store", "node_modules", ".git", ".build", ".svn",
     ]
 
     public init() {}
 
-    public func enumerate(_ directory: URL) throws -> [FileNode] {
+    public func enumerate(_ directory: URL, includeHidden: Bool) throws -> [FileNode] {
         let fm = FileManager.default
         let entries = try fm.contentsOfDirectory(
             at: directory,
@@ -24,8 +35,9 @@ public struct FileService: FileServicing {
         let nodes: [FileNode] = entries.compactMap { url in
             let name = url.lastPathComponent
             if Self.ignoredNames.contains(name) { return nil }
-            // Hide dotfiles except .env*.
-            if name.hasPrefix("."), name != ".env", !name.hasPrefix(".env.") { return nil }
+            // Hide dotfiles unless "Show hidden" is on. `.env*` stays visible
+            // either way (it's a curated config, not noise).
+            if !includeHidden, name.hasPrefix("."), name != ".env", !name.hasPrefix(".env.") { return nil }
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             return FileNode(url: url, isDirectory: isDir, children: nil)
         }

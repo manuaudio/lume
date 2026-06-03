@@ -25,7 +25,7 @@ struct FileTreeView: View {
         // `ForEach` whose collection is initially empty never fires `.onAppear`,
         // so relying on it to kick off the first load left the tree permanently
         // empty. `.onChange(of: parent)` still handles re-roots on the same view.
-        _children = State(initialValue: model.children(of: parent))
+        _children = State(initialValue: model.children(of: parent, includeHidden: model.showHidden))
     }
 
     var body: some View {
@@ -44,6 +44,8 @@ struct FileTreeView: View {
         }
         .onAppear { reload() }
         .onChange(of: parent) { _, _ in reload() }
+        // Re-enumerate when "Show hidden" flips so dotfiles appear/disappear.
+        .onChange(of: model.showHidden) { _, _ in reload() }
     }
 
     private var visibleChildren: [FileNode] {
@@ -64,7 +66,7 @@ struct FileTreeView: View {
     }
 
     private func reload() {
-        children = model.children(of: parent)
+        children = model.children(of: parent, includeHidden: model.showHidden)
     }
 }
 
