@@ -12,7 +12,21 @@ final class AppModel {
     var activeTagFilter: String?
 
     // Browser
-    var browseRoot: URL? { didSet { persistBrowseRoot() } }
+    var browseRoot: URL? {
+        didSet {
+            // Defense in depth: a relative/non-file URL makes
+            // `Breadcrumb.segments` walk parents unbounded (31 GB CPU-kill hang),
+            // so force a standardized absolute file URL before it reaches the UI.
+            // Reassigning re-enters this `didSet`, but `safe` is then a fixed
+            // point, so it settles in at most two cycles.
+            if let r = browseRoot {
+                let safe = r.isFileURL ? r.standardizedFileURL
+                                       : URL(fileURLWithPath: r.path).standardizedFileURL
+                if safe != r { browseRoot = safe; return }
+            }
+            persistBrowseRoot()
+        }
+    }
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
     var expandedPaths: Set<String> = []
     var selectedRowID: String?

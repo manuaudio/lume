@@ -15,12 +15,22 @@ public enum Breadcrumb {
         let homeStd = home.standardizedFileURL
 
         // Build the list of path components as URLs, from filesystem root down.
+        //
+        // Only an absolute file URL has a parent chain that terminates at "/".
+        // For a relative or non-file URL, `deletingLastPathComponent()` prepends
+        // "../" forever and never reaches a fixed point — the original
+        // `while true` loop grew `urls` unbounded (31 GB → CPU kill). Guard on
+        // file-URL-ness, require the path to strictly shrink each step, and cap
+        // iterations as a final backstop against any unforeseen non-terminating
+        // case.
+        let maxDepth = 64
         var urls: [URL] = []
         var walk = cur
-        while true {
+        while urls.count < maxDepth {
             urls.append(walk)
+            guard walk.isFileURL, !walk.path.isEmpty else { break }
             let parent = walk.deletingLastPathComponent()
-            if parent.path == walk.path { break }   // reached "/"
+            guard parent.path.count < walk.path.count else { break }   // reached "/" (no shrink)
             walk = parent
         }
         urls.reverse() // root → current
