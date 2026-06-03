@@ -72,7 +72,8 @@ struct SidebarItemRow: View {
                 }
 
                 if isRenaming {
-                    RenameField(url: url, model: model)
+                    RenameField(url: url, model: model,
+                                autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 } else if isDirectory {
                     Label(names[url.path] ?? url.lastPathComponent,
                           systemImage: section == .pinned ? "folder.fill" : "folder")
@@ -189,10 +190,12 @@ struct RowMenu: View {
     }
 }
 
-/// In-place display-name editor shown on the row being renamed.
+/// In-place display-name editor shown on the row being renamed. Pre-fills with
+/// the effective label and treats "filename" or "auto-name" as "no override".
 struct RenameField: View {
     let url: URL
     let model: AppModel
+    var autoName: String? = nil   // Pinned-context parent-folder name, if applicable
 
     @Environment(\.modelContext) private var context
     @State private var text = ""
@@ -203,7 +206,10 @@ struct RenameField: View {
             .textFieldStyle(.roundedBorder)
             .focused($focused)
             .onAppear {
-                text = model.store?.displayName(for: url.path) ?? url.lastPathComponent
+                // Effective label: user override > auto-name (pinned) > filename.
+                text = model.store?.displayName(for: url.path)
+                    ?? autoName
+                    ?? url.lastPathComponent
                 focused = true
             }
             .onSubmit { commit() }
@@ -215,11 +221,14 @@ struct RenameField: View {
         let store = LibraryStore(context: context)
         let meta = store.meta(for: url.path)
         let trimmed = text.trimmingCharacters(in: .whitespaces)
+        // Accepting the real filename OR the auto-name stores no override, so the
+        // row stays auto/plain and a later auto-name change still applies.
+        let isDefault = trimmed == url.lastPathComponent || trimmed == autoName
         // Preserve existing notes/tags; only the display name changes here.
         store.setMeta(path: url.path,
                       info: meta?.info ?? "",
                       tagNames: meta?.tags.map(\.name) ?? [],
-                      displayName: trimmed == url.lastPathComponent ? "" : trimmed)
+                      displayName: isDefault ? "" : trimmed)
         model.renamingPath = nil
     }
 }
