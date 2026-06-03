@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import Observation
+import AppKit
 import LumeCore
 
 @MainActor
@@ -28,8 +29,16 @@ final class AppModel {
         }
     }
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
+    /// When true, hidden paths are shown (dimmed) instead of omitted.
+    var showHidden = false { didSet { UserDefaults.standard.set(showHidden, forKey: "lume.showHidden") } }
     var expandedPaths: Set<String> = []
-    var selectedRowID: String?
+    /// Multi-row selection for the sidebar `List`. Single-row behaviors
+    /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
+    var selectedRowIDs: Set<String> = []
+    /// True only while ⌃ (Control) is held — drives the transient path bar.
+    var pathPeek = false
+    /// Drives the multi-selection "Edit Tags…" sheet (see MultiTagSheet).
+    var editingTagsForSelection = false
     var browseFilter: String = ""
 
     // Inline editing (which row is mid-edit)
@@ -44,6 +53,7 @@ final class AppModel {
 
     init() {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
+        showHidden = UserDefaults.standard.bool(forKey: "lume.showHidden")
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {
@@ -139,6 +149,66 @@ final class AppModel {
         browseFilter = ""
     }
 
+    // MARK: - Multi-selection commands
+
+    /// Write the selected paths to the clipboard as newline-joined POSIX paths
+    /// (the AI hand-off) AND as file URLs, so pasting into Finder/editors that
+    /// prefer file references also works. Mirrors Finder's "Copy as Pathname".
+    func copyPaths() {
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(urls.map { $0 as NSURL })
+        pb.setString(PathExport.clipboardString(for: urls), forType: .string)
+    }
+
+    /// True when every selected path is already hidden (drives the menu label).
+    func selectionIsAllHidden(_ hiddenPaths: Set<String>) -> Bool {
+        let urls = selectedURLs
+        return !urls.isEmpty && urls.allSatisfy { hiddenPaths.contains($0.path) }
+    }
+
+    /// Hide or un-hide every selected path.
+    func setHiddenForSelection(_ hidden: Bool) {
+        guard let store else { return }
+        store.setHidden(hidden, paths: selectedURLs.map(\.path))
+    }
+
+    /// Un-hide a single path (inline eye affordance on a dimmed row).
+    func unhide(_ url: URL) {
+        store?.setHidden(false, paths: [url.path])
+    }
+
+    /// Promote the first selected folder to the Open Folder region.
+    func openSelectedFolder() {
+        guard let folder = selectedFolderURLs.first else { return }
+        drillInto(folder)
+    }
+
+    /// Remove every selected path from favorites.
+    func unpinSelection() {
+        guard let store else { return }
+        for url in selectedURLs { store.removeFavorite(path: url.path) }
+    }
+
+    /// Apply a comma-separated tag string to every selected path, preserving
+    /// each path's existing info/displayName (read via `meta(for:)`).
+    func applyTagsToSelection(_ tagString: String) {
+        guard let store else { return }
+        let names = tagString
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for url in selectedURLs {
+            let existing = store.meta(for: url.path)
+            store.setMeta(path: url.path,
+                          info: existing?.info ?? "",
+                          tagNames: names,
+                          displayName: existing?.displayName ?? "")
+        }
+    }
+
     func toggleExpanded(_ url: URL) {
         if expandedPaths.contains(url.path) { expandedPaths.remove(url.path) }
         else { expandedPaths.insert(url.path) }
@@ -199,15 +269,43 @@ final class AppModel {
 
     // MARK: Selected-row helpers (for keyboard commands)
 
-    /// The URL of the currently selected row (file or folder).
+    /// The sole selected row id, or nil when zero or multiple rows are selected.
+    /// Single-row keyboard/open behaviors gate on this.
+    var soleSelectedRowID: String? {
+        selectedRowIDs.count == 1 ? selectedRowIDs.first : nil
+    }
+
+    /// The URL of the sole selected row (file or folder), if exactly one.
     var selectedRowURL: URL? {
-        guard let id = selectedRowID else { return nil }
+        guard let id = soleSelectedRowID else { return nil }
         return SidebarRow.decode(id)?.url
     }
 
+    /// All selected rows decoded to file URLs, in sidebar (sorted-id) order.
+    /// Every multi-item command consumes this.
+    var selectedURLs: [URL] {
+        selectedRowIDs.sorted().compactMap { SidebarRow.decode($0)?.url }
+    }
+
+    /// Selected rows that are directories, in sidebar order (for Open).
+    var selectedFolderURLs: [URL] {
+        selectedRowIDs.sorted().compactMap {
+            guard let row = SidebarRow.decode($0), row.isDirectory else { return nil }
+            return row.url
+        }
+    }
+
     private var selectedRowIsDirectory: Bool {
-        guard let id = selectedRowID else { return false }
+        guard let id = soleSelectedRowID else { return false }
         return SidebarRow.decode(id)?.isDirectory ?? false
+    }
+
+    /// Open a file in the document view only when exactly one file row is
+    /// selected, so extending a multi-selection doesn't thrash the document view.
+    func openIfSingleFileSelected() {
+        guard let id = soleSelectedRowID,
+              let row = SidebarRow.decode(id), !row.isDirectory else { return }
+        selectedFile = row.url
     }
 
     func renameSelected() { renamingPath = selectedRowURL?.path }
