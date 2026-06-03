@@ -159,13 +159,20 @@ struct SidebarView: View {
             } else {
                 ForEach(visibleFavorites) { fav in
                     let url = URL(fileURLWithPath: fav.path)
+                    let isDir = fav.kindRaw == "folder"
                     SidebarItemRow(url: url,
-                                   isDirectory: fav.kindRaw == "folder",
+                                   isDirectory: isDir,
                                    section: .pinned, depth: 0,
                                    model: model, names: names,
                                    hiddenPaths: hiddenPaths)
-                        .tag(SidebarRow(url: url, isDirectory: fav.kindRaw == "folder",
+                        .tag(SidebarRow(url: url, isDirectory: isDir,
                                         section: .pinned).id)
+                    // Inline expansion: a favorited folder reveals its children
+                    // in place (the curation surface), mirroring the browser tree.
+                    if isDir, model.expandedPaths.contains(url.path) {
+                        FileTreeView(parent: url, model: model, names: names,
+                                     hiddenPaths: hiddenPaths, section: .pinned, depth: 1)
+                    }
                 }
                 .onMove { indices, newOffset in
                     // Reorder only the visible favorites, then re-stitch hidden
