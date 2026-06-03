@@ -51,7 +51,11 @@ codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 echo "✓ Built $APP"
 
 # Install a copy where it's discoverable in Launchpad/Spotlight.
+# Remove any existing bundle first: `cp -R src dest` when dest exists copies
+# src *into* dest (dest/Lume.app) instead of replacing it, which silently
+# leaves the old binary in place.
 DEST="/Applications/Lume.app"
+rm -rf "$DEST" 2>/dev/null || true
 if cp -R "$APP" "$DEST" 2>/dev/null; then
   echo "✓ Installed to $DEST"
 else
