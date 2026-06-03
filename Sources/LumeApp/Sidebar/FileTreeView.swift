@@ -108,7 +108,9 @@ struct SidebarItemRow: View {
         }
         .padding(.leading, CGFloat(depth) * 12)
         .contentShape(Rectangle())
-        .draggable(url)
+        // Drag-to-copy-paths only in the browser; in Favorites it would fight
+        // the list's .onMove drag-to-reorder.
+        .draggableIf(section == .browser, url)
         .onTapGesture(count: 2) {
             guard isDirectory else { return }
             model.expandedPaths.remove(url.path)   // undo the single-tap's pending expand
@@ -224,11 +226,16 @@ struct RowMenu: View {
             }
             .keyboardShortcut("c", modifiers: [.option, .command])
 
+            // If the clicked row isn't part of the selection, judge by that row
+            // (right-click adopts it); otherwise judge by the whole selection.
+            // The action re-derives state AFTER ensureSelected() so label and
+            // action can't disagree.
             let allHidden = model.selectionIsAllHidden(hiddenPaths)
-                || (model.selectedRowIDs.isEmpty && hiddenPaths.contains(url.path))
+                || (!model.selectedRowIDs.contains(rowID) && hiddenPaths.contains(url.path))
             Button(allHidden ? "Un-hide" : "Hide",
                    systemImage: allHidden ? "eye" : "eye.slash") {
-                ensureSelected(); model.setHiddenForSelection(!allHidden)
+                ensureSelected()
+                model.setHiddenForSelection(!model.selectionIsAllHidden(hiddenPaths))
             }
             .keyboardShortcut(.delete, modifiers: .command)
 
@@ -386,5 +393,18 @@ struct RowMetaView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         store.setMeta(path: url.path, info: notes, tagNames: tagNames,
                       displayName: store.displayName(for: url.path) ?? "")
+    }
+}
+
+private extension View {
+    /// Applies `.draggable(payload)` only when `enabled`, leaving the view
+    /// untouched otherwise (so reorderable lists keep their drag behavior).
+    @ViewBuilder
+    func draggableIf<T: Transferable>(_ enabled: Bool, _ payload: T) -> some View {
+        if enabled {
+            self.draggable(payload)
+        } else {
+            self
+        }
     }
 }

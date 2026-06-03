@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 import LumeCore
@@ -30,6 +31,12 @@ struct SidebarView: View {
 
     private var filter: Binding<String> {
         Binding(get: { model.browseFilter }, set: { model.browseFilter = $0 })
+    }
+
+    /// Favorites shown in the pinned list, honoring the Show-hidden toggle.
+    /// Shared by the `ForEach` and `.onMove` so reorder indices stay correct.
+    private var visibleFavorites: [Favorite] {
+        model.showHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
     }
 
     var body: some View {
@@ -76,6 +83,13 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in
             filterFocused = true
         }
+        // The local .flagsChanged monitor can miss the ⌃ key-up if the app/window
+        // resigns active while held, leaving the tree dimmed and the peek bar
+        // stuck. Reset pathPeek defensively on resign / disappear.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            model.pathPeek = false
+        }
+        .onDisappear { model.pathPeek = false }
     }
 
     // MARK: Top bar — filter field + files-only toggle
@@ -143,10 +157,7 @@ struct SidebarView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                let visibleFavs = model.showHidden
-                    ? favorites
-                    : favorites.filter { !hiddenPaths.contains($0.path) }
-                ForEach(visibleFavs) { fav in
+                ForEach(visibleFavorites) { fav in
                     let url = URL(fileURLWithPath: fav.path)
                     SidebarItemRow(url: url,
                                    isDirectory: fav.kindRaw == "folder",
@@ -157,9 +168,12 @@ struct SidebarView: View {
                                         section: .pinned).id)
                 }
                 .onMove { indices, newOffset in
-                    var paths = favorites.map(\.path)
-                    paths.move(fromOffsets: indices, toOffset: newOffset)
-                    model.store?.reorderFavorites(paths)
+                    // Reorder only the visible favorites, then re-stitch hidden
+                    // paths at the tail so the store keeps a complete ordering.
+                    var visible = visibleFavorites.map(\.path)
+                    visible.move(fromOffsets: indices, toOffset: newOffset)
+                    let hidden = favorites.map(\.path).filter { !visible.contains($0) }
+                    model.store?.reorderFavorites(visible + hidden)
                 }
             }
         }
