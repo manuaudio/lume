@@ -29,8 +29,12 @@ final class AppModel {
         }
     }
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
-    /// When true, hidden paths are shown (dimmed) instead of omitted.
-    var showHidden = false { didSet { UserDefaults.standard.set(showHidden, forKey: "lume.showHidden") } }
+    /// FAVORITES curation: when true, items hidden from Favorites are revealed
+    /// (dimmed, with an un-hide affordance) instead of omitted.
+    var showPinnedHidden = false { didSet { UserDefaults.standard.set(showPinnedHidden, forKey: "lume.showPinnedHidden") } }
+    /// OPEN FOLDER browser: when true, Finder-hidden dotfiles (.env, .claude…)
+    /// are revealed. Independent of `showPinnedHidden`.
+    var showBrowserHidden = false { didSet { UserDefaults.standard.set(showBrowserHidden, forKey: "lume.showBrowserHidden") } }
     var expandedPaths: Set<String> = []
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
@@ -53,7 +57,8 @@ final class AppModel {
 
     init() {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
-        showHidden = UserDefaults.standard.bool(forKey: "lume.showHidden")
+        showPinnedHidden = UserDefaults.standard.bool(forKey: "lume.showPinnedHidden")
+        showBrowserHidden = UserDefaults.standard.bool(forKey: "lume.showBrowserHidden")
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {

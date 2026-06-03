@@ -33,10 +33,11 @@ struct SidebarView: View {
         Binding(get: { model.browseFilter }, set: { model.browseFilter = $0 })
     }
 
-    /// Favorites shown in the pinned list, honoring the Show-hidden toggle.
-    /// Shared by the `ForEach` and `.onMove` so reorder indices stay correct.
+    /// Favorites shown in the pinned list, honoring the FAVORITES show-hidden
+    /// toggle (`showPinnedHidden`). Shared by the `ForEach` and `.onMove` so
+    /// reorder indices stay correct.
     private var visibleFavorites: [Favorite] {
-        model.showHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
+        model.showPinnedHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
     }
 
     var body: some View {
@@ -104,12 +105,6 @@ struct SidebarView: View {
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
-                Toggle(isOn: Binding(get: { model.showHidden },
-                                     set: { model.showHidden = $0 })) {
-                    Label("Show hidden", systemImage: "eye.slash")
-                }
-                .toggleStyle(.button)
-                .controlSize(.small)
                 Spacer()
             }
         }
@@ -151,7 +146,7 @@ struct SidebarView: View {
     }
 
     @ViewBuilder private var pinnedSection: some View {
-        Section("FAVORITES") {
+        Section {
             if favorites.isEmpty {
                 Text("Right-click any file or folder to pin it.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -183,6 +178,11 @@ struct SidebarView: View {
                     model.store?.reorderFavorites(visible + hidden)
                 }
             }
+        } header: {
+            SectionHeader(title: "FAVORITES",
+                          isOn: Binding(get: { model.showPinnedHidden },
+                                        set: { model.showPinnedHidden = $0 }),
+                          help: "Show items hidden from Favorites")
         }
     }
 
@@ -205,13 +205,18 @@ struct SidebarView: View {
     // MARK: Browser
 
     @ViewBuilder private var browserSection: some View {
-        Section(openFolderTitle) {
+        Section {
             pathPeekBar
             if let root = model.browseRoot {
                 FileTreeView(parent: root, model: model, names: names,
                              hiddenPaths: hiddenPaths, section: .browser, depth: 0)
                     .opacity(model.pathPeek ? 0.4 : 1)
             }
+        } header: {
+            SectionHeader(title: openFolderTitle,
+                          isOn: Binding(get: { model.showBrowserHidden },
+                                        set: { model.showBrowserHidden = $0 }),
+                          help: "Show hidden files (.env, .claude…)")
         }
     }
 
@@ -240,6 +245,29 @@ struct SidebarView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.bar)
+        }
+    }
+}
+
+// MARK: - SectionHeader
+
+/// A section header with a trailing borderless eye toggle. Used identically by
+/// the FAVORITES and OPEN FOLDER regions so both controls look the same.
+struct SectionHeader: View {
+    let title: String
+    @Binding var isOn: Bool
+    let help: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Button { isOn.toggle() } label: {
+                Image(systemName: isOn ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help(help)
         }
     }
 }

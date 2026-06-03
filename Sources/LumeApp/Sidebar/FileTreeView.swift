@@ -25,7 +25,16 @@ struct FileTreeView: View {
         // `ForEach` whose collection is initially empty never fires `.onAppear`,
         // so relying on it to kick off the first load left the tree permanently
         // empty. `.onChange(of: parent)` still handles re-roots on the same view.
-        _children = State(initialValue: model.children(of: parent, includeHidden: model.showHidden))
+        _children = State(initialValue: model.children(of: parent,
+                                                        includeHidden: Self.includeHidden(section: section, model: model)))
+    }
+
+    /// Whether the on-disk enumeration should include Finder-hidden files.
+    /// Browser shows reality (dotfiles gated by the browser toggle); the pinned
+    /// region is a curation surface and never reveals OS-hidden files here.
+    /// Shared by the `_children` seed and `reload()` so the policy can't drift.
+    private static func includeHidden(section: SidebarSection, model: AppModel) -> Bool {
+        section == .browser && model.showBrowserHidden
     }
 
     var body: some View {
@@ -44,14 +53,21 @@ struct FileTreeView: View {
         }
         .onAppear { reload() }
         .onChange(of: parent) { _, _ in reload() }
-        // Re-enumerate when "Show hidden" flips so dotfiles appear/disappear.
-        .onChange(of: model.showHidden) { _, _ in reload() }
+        // Re-enumerate when the browser hidden toggle flips so dotfiles
+        // appear/disappear. Harmless no-op for the pinned tree (it always
+        // enumerates with includeHidden: false; reload() re-applies that).
+        // No matching watcher for `showPinnedHidden` is needed: that flag only
+        // affects the `visibleChildren` filter, which re-evaluates reactively
+        // via @Observable tracking — no new filesystem enumeration required.
+        .onChange(of: model.showBrowserHidden) { _, _ in reload() }
     }
 
     private var visibleChildren: [FileNode] {
         var nodes = children
         if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
-        if !model.showHidden {
+        // Curation filter: only the FAVORITES region hides items by FileMeta.hidden,
+        // and only when the pinned reveal toggle is off. The browser shows reality.
+        if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
         }
         if let tag = model.activeTagFilter {
@@ -66,7 +82,8 @@ struct FileTreeView: View {
     }
 
     private func reload() {
-        children = model.children(of: parent, includeHidden: model.showHidden)
+        children = model.children(of: parent,
+                                  includeHidden: Self.includeHidden(section: section, model: model))
     }
 }
 
@@ -112,13 +129,13 @@ struct SidebarItemRow: View {
                             autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 }
                 Spacer(minLength: 0)
-                if model.showHidden, isHidden {
+                if section == .pinned, model.showPinnedHidden, isHidden {
                     Button { model.unhide(url) } label: { Image(systemName: "eye") }
                         .buttonStyle(.borderless)
                         .help("Un-hide")
                 }
             }
-            .opacity(isHidden ? 0.45 : 1)
+            .opacity(section == .pinned && isHidden ? 0.45 : 1)
             if !isDirectory, model.selectedFile == url, !isRenaming {
                 RowMetaView(url: url, model: model)
             }
@@ -243,18 +260,23 @@ struct RowMenu: View {
             }
             .keyboardShortcut("c", modifiers: [.option, .command])
 
-            // If the clicked row isn't part of the selection, judge by that row
-            // (right-click adopts it); otherwise judge by the whole selection.
-            // The action re-derives state AFTER ensureSelected() so label and
-            // action can't disagree.
-            let allHidden = model.selectionIsAllHidden(hiddenPaths)
-                || (!model.selectedRowIDs.contains(rowID) && hiddenPaths.contains(url.path))
-            Button(allHidden ? "Un-hide" : "Hide",
-                   systemImage: allHidden ? "eye" : "eye.slash") {
-                ensureSelected()
-                model.setHiddenForSelection(!model.selectionIsAllHidden(hiddenPaths))
+            // Hide/Un-hide curates the FAVORITES view, so it applies ONLY to a
+            // nested item inside a pinned folder — never a top-level favorite
+            // (use Unpin) and never the browser (which shows reality).
+            if section == .pinned && !model.isPinned(url) {
+                // If the clicked row isn't part of the selection, judge by that
+                // row (right-click adopts it); otherwise judge by the whole
+                // selection. The action re-derives state AFTER ensureSelected()
+                // so label and action can't disagree.
+                let allHidden = model.selectionIsAllHidden(hiddenPaths)
+                    || (!model.selectedRowIDs.contains(rowID) && hiddenPaths.contains(url.path))
+                Button(allHidden ? "Un-hide" : "Hide",
+                       systemImage: allHidden ? "eye" : "eye.slash") {
+                    ensureSelected()
+                    model.setHiddenForSelection(!model.selectionIsAllHidden(hiddenPaths))
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
             }
-            .keyboardShortcut(.delete, modifiers: .command)
 
             Button("Edit Tags…", systemImage: "tag") {
                 ensureSelected()
@@ -273,12 +295,14 @@ struct RowMenu: View {
                 }
             }
 
-            if section == .browser && !multi {
-                Button(model.isPinned(url) ? "Unpin" : "Pin",
-                       systemImage: model.isPinned(url) ? "pin.slash" : "pin") {
-                    ensureSelected(); model.togglePin(url, isDirectory: isDirectory)
+            if section == .browser {
+                if !multi {
+                    Button(model.isPinned(url) ? "Unpin" : "Pin",
+                           systemImage: model.isPinned(url) ? "pin.slash" : "pin") {
+                        ensureSelected(); model.togglePin(url, isDirectory: isDirectory)
+                    }
                 }
-            } else {
+            } else if model.isPinned(url) {
                 Button("Unpin", systemImage: "pin.slash") {
                     ensureSelected(); model.unpinSelection()
                 }
