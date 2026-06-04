@@ -189,6 +189,13 @@ public final class LibraryStore {
         existingTag(named: name)?.colorIndex ?? 0
     }
 
+    /// Change a tag's palette color. Out-of-range indexes are wrapped.
+    public func recolorTag(named name: String, colorIndex: Int) {
+        guard let t = existingTag(named: name) else { return }
+        t.colorIndex = TagPalette.wrap(colorIndex)
+        try? context.save()
+    }
+
     /// Fetch a tag by name, creating it (with the next cycling color) if absent.
     private func tag(named name: String) -> Tag {
         if let existing = existingTag(named: name) { return existing }

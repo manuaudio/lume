@@ -35,3 +35,15 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     store.setMeta(path: "/b.md", info: "", tagNames: ["apple"])
     #expect(store.allTags().map(\.name) == ["apple", "zebra"])
 }
+
+@MainActor @Test func recolorTagPersistsAndWraps() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["work"])
+    store.recolorTag(named: "work", colorIndex: 5)
+    #expect(store.colorIndex(forTagNamed: "work") == 5)
+    store.recolorTag(named: "work", colorIndex: 9)
+    #expect(store.colorIndex(forTagNamed: "work") == 1)
+    store.recolorTag(named: "ghost", colorIndex: 3)
+    #expect(store.colorIndex(forTagNamed: "ghost") == 0)
+}
