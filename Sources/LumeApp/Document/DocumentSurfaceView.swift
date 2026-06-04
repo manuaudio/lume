@@ -27,6 +27,17 @@ struct DocumentSurfaceView: View {
 
     @ViewBuilder
     private func viewer(for url: URL, kind: FileKind) -> some View {
+        // Config files with a registered structured format get the structured
+        // editor (with a raw toggle), in preference to the read-only CodeView.
+        if let format = ConfigRegistry.format(forFilename: url.lastPathComponent) {
+            ConfigEditorView(fileURL: url, format: format, model: model)
+        } else {
+            plainViewer(for: url, kind: kind)
+        }
+    }
+
+    @ViewBuilder
+    private func plainViewer(for url: URL, kind: FileKind) -> some View {
         switch DocumentRouter.viewer(for: kind) {
         case .markdownEditor:
             MarkdownEditorView(fileURL: url, editable: true, model: model)
