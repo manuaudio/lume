@@ -66,4 +66,82 @@ import Testing
         #expect(RowSelection.move(from: nil, in: [], by: 1) == nil)
         #expect(RowSelection.all(in: []) == [])
     }
+
+    // MARK: Stale-id robustness (reviewer-noted gaps)
+
+    @Test func moveFromStaleCurrentLandsOnEdge() {
+        // `current` not present in `order` (e.g. the selected row was filtered
+        // out): treat it like "no focus" and land on the edge in the move
+        // direction — down → first, up → last.
+        let down = RowSelection.move(from: "zzz", in: order, by: 1)
+        #expect(down?.selection == ["a"])
+        #expect(down?.anchor == "a")
+
+        let up = RowSelection.move(from: "zzz", in: order, by: -1)
+        #expect(up?.selection == ["e"])
+        #expect(up?.anchor == "e")
+    }
+
+    @Test func extendWithAbsentAnchorIsNoOp() {
+        #expect(RowSelection.extend(anchor: "zzz", focus: "b", in: order, by: 1) == nil)
+    }
+
+    @Test func extendWithAbsentFocusIsNoOp() {
+        #expect(RowSelection.extend(anchor: "b", focus: "zzz", in: order, by: 1) == nil)
+    }
+
+    // MARK: Extend after ⌘A (select-all then ⇧-arrow)
+
+    @Test func extendAfterSelectAllFromSoleAnchorContracts() {
+        // ⌘A with a prior sole selection at "b" → anchor "b", focus last "e".
+        // ⇧↑ moves focus up to "d"; the range becomes b…d (the rows between the
+        // anchor and the new focus), i.e. select-all then ⇧↑ contracts from the
+        // bottom toward the anchor — Finder behavior.
+        #expect(RowSelection.all(in: order) == ["a", "b", "c", "d", "e"])
+        let r = RowSelection.extend(anchor: "b", focus: "e", in: order, by: -1)
+        #expect(r?.selection == ["b", "c", "d"])
+        #expect(r?.focus == "d")
+    }
+
+    @Test func extendAfterSelectAllNoPriorSelectionFromFirst() {
+        // ⌘A with no prior sole selection → anchor first "a", focus last "e".
+        // ⇧↑ contracts the bottom: range a…d.
+        let r = RowSelection.extend(anchor: "a", focus: "e", in: order, by: -1)
+        #expect(r?.selection == ["a", "b", "c", "d"])
+        #expect(r?.focus == "d")
+    }
+
+    // MARK: contiguousRunEndpoints (mouse ⇧-click → keyboard recovery)
+
+    @Test func contiguousRunEndpointsReturnsLowAndHigh() {
+        let ep = RowSelection.contiguousRunEndpoints(of: ["b", "c", "d"], in: order)
+        #expect(ep?.low == "b")
+        #expect(ep?.high == "d")
+    }
+
+    @Test func contiguousRunEndpointsSingleRow() {
+        let ep = RowSelection.contiguousRunEndpoints(of: ["c"], in: order)
+        #expect(ep?.low == "c")
+        #expect(ep?.high == "c")
+    }
+
+    @Test func contiguousRunEndpointsRejectsGap() {
+        // {a, c} is non-contiguous (b missing) → nil.
+        #expect(RowSelection.contiguousRunEndpoints(of: ["a", "c"], in: order) == nil)
+    }
+
+    @Test func contiguousRunEndpointsRejectsAbsentID() {
+        #expect(RowSelection.contiguousRunEndpoints(of: ["b", "zzz"], in: order) == nil)
+    }
+
+    @Test func contiguousRunEndpointsEmptyIsNil() {
+        #expect(RowSelection.contiguousRunEndpoints(of: [], in: order) == nil)
+    }
+
+    @Test func contiguousRunEndpointsIgnoresSetOrdering() {
+        // Set has no order; endpoints must come from `order`, not insertion.
+        let ep = RowSelection.contiguousRunEndpoints(of: ["d", "b", "c"], in: order)
+        #expect(ep?.low == "b")
+        #expect(ep?.high == "d")
+    }
 }

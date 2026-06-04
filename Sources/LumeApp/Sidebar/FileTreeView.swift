@@ -159,7 +159,13 @@ struct SidebarItemRow: View {
                 model.expandedPaths.remove(url.path)   // collapse any pending inline expand
                 model.drillInto(url)
             } else {
+                // Sync the selection (so List/action-bar/keyboard helpers agree),
+                // then open explicitly. The explicit open matters when this file
+                // is ALREADY the sole selection: the set is unchanged, so the
+                // onChange(selectedRowIDs)→openIfSingleFileSelected path doesn't
+                // fire, and without this the second click would do nothing.
                 model.selectedRowIDs = [SidebarRow(url: url, isDirectory: false, section: section).id]
+                model.selectedFile = url
             }
         }
         .contextMenu {

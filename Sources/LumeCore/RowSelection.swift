@@ -48,4 +48,22 @@ public enum RowSelection {
 
     /// The whole list as a selection (⌘A).
     public static func all(in order: [String]) -> Set<String> { Set(order) }
+
+    /// If `selection` forms a single contiguous run within `order`, returns the
+    /// (low, high) endpoint row ids of that run (in `order` order). Returns nil
+    /// when the selection is empty, has ids absent from `order`, or is split into
+    /// two-or-more gaps (non-contiguous). Used to recover a sane keyboard focus
+    /// after a native mouse ⇧-click mutates the selection without our anchor/focus
+    /// bookkeeping.
+    public static func contiguousRunEndpoints(of selection: Set<String>,
+                                              in order: [String]) -> (low: String, high: String)? {
+        guard !selection.isEmpty else { return nil }
+        let indices = selection.compactMap { order.firstIndex(of: $0) }.sorted()
+        // Every selected id must exist in `order`…
+        guard indices.count == selection.count, let lo = indices.first, let hi = indices.last
+        else { return nil }
+        // …and the run must be gap-free.
+        guard hi - lo + 1 == indices.count else { return nil }
+        return (order[lo], order[hi])
+    }
 }

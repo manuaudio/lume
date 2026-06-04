@@ -46,7 +46,15 @@ struct SidebarView: View {
     /// Flat top-to-bottom order of every visible row id, matching what the List
     /// actually renders (pinned region, then expanded pinned children, then the
     /// browser tree). Feeds the keyboard range math in `AppModel`.
-    private var orderedRowIDs: [String] {
+    ///
+    /// PERFORMANCE: this recursively walks the expanded tree via
+    /// `model.children(of:)` → an UNCACHED `FileManager` directory read per
+    /// expanded folder. It is therefore NOT a computed property observed by the
+    /// body (that recomputed the whole disk walk on every selection/arrow-key
+    /// render — a per-keystroke main-thread hang). Instead it is recomputed only
+    /// from the explicit `.onChange` triggers below, for the inputs that actually
+    /// change the visible STRUCTURE/order — never on `selectedRowIDs`.
+    private func computeOrderedRowIDs() -> [String] {
         var ids: [String] = []
 
         func walk(_ url: URL, isDir: Bool, section: SidebarSection, includeHidden: Bool) {
@@ -69,6 +77,27 @@ struct SidebarView: View {
             }
         }
         return ids
+    }
+
+    /// Every input that can change the OUTPUT of `computeOrderedRowIDs`, folded
+    /// into one cheap Equatable value. When (and only when) this changes does the
+    /// recursive disk walk re-run — selection is deliberately absent. Keep this in
+    /// lockstep with the inputs read by `computeOrderedRowIDs` / `visibleChildren`:
+    /// expanded set, browse root, the visible-favorites list (favorites order +
+    /// pinned-hidden reveal + hidden paths), files-only, the active tag filter,
+    /// the browse text filter, and the browser-hidden reveal.
+    private var rowOrderSignature: RowOrderSignature {
+        RowOrderSignature(
+            expanded: model.expandedPaths,
+            browseRoot: model.browseRoot?.path,
+            favoritePaths: visibleFavorites.map(\.path),
+            filesOnly: model.filesOnly,
+            activeTagFilter: model.activeTagFilter,
+            browseFilter: model.browseFilter,
+            showBrowserHidden: model.showBrowserHidden,
+            showPinnedHidden: model.showPinnedHidden,
+            hiddenPaths: hiddenPaths
+        )
     }
 
     /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
@@ -119,8 +148,14 @@ struct SidebarView: View {
                                                set: { model.editingTagsForSelection = $0 }))
         }
         .onChange(of: model.selectedRowIDs) { _, _ in model.openIfSingleFileSelected() }
-        .onChange(of: orderedRowIDs) { _, new in model.orderedVisibleRowIDs = new }
-        .onAppear { model.orderedVisibleRowIDs = orderedRowIDs }
+        // Recompute the flat visible order ONLY when the inputs that change the
+        // rendered structure/order change — NOT on selection. `rowOrderSignature`
+        // folds every such input into one Equatable value, so a single onChange
+        // covers them all and the expensive disk walk runs only when needed.
+        .onChange(of: rowOrderSignature) { _, _ in
+            model.orderedVisibleRowIDs = computeOrderedRowIDs()
+        }
+        .onAppear { model.orderedVisibleRowIDs = computeOrderedRowIDs() }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
         // notes editors. Each returns `.handled` only when it acts.
@@ -370,6 +405,24 @@ struct SidebarView: View {
             .background(.bar)
         }
     }
+}
+
+// MARK: - RowOrderSignature
+
+/// A cheap, value-type fingerprint of every input that affects the flat visible
+/// row order. Equating two of these lets SwiftUI's `.onChange` re-drive the
+/// (expensive) ordered-row walk only when the structure/visibility actually
+/// changed — never on a mere selection change. See `SidebarView.rowOrderSignature`.
+private struct RowOrderSignature: Equatable {
+    let expanded: Set<String>
+    let browseRoot: String?
+    let favoritePaths: [String]
+    let filesOnly: Bool
+    let activeTagFilter: String?
+    let browseFilter: String
+    let showBrowserHidden: Bool
+    let showPinnedHidden: Bool
+    let hiddenPaths: Set<String>
 }
 
 // MARK: - SectionHeader

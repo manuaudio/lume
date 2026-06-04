@@ -371,10 +371,15 @@ final class AppModel {
         selectedFile = row.url
     }
 
-    /// ⌘A — select every visible row.
+    /// ⌘A — select every visible row. Anchor on the current sole selection (so a
+    /// following ⇧↑/⇧↓ extends from where the user was, like Finder) and fall back
+    /// to the first row when there was no single prior selection.
     func selectAllVisibleRows() {
+        // Capture the prior sole selection BEFORE replacing selectedRowIDs —
+        // afterwards soleSelectedRowID is nil whenever there's >1 visible row.
+        let priorSole = soleSelectedRowID
         selectedRowIDs = RowSelection.all(in: orderedVisibleRowIDs)
-        selectionAnchorID = orderedVisibleRowIDs.first
+        selectionAnchorID = priorSole ?? orderedVisibleRowIDs.first
         selectionFocusID = orderedVisibleRowIDs.last
     }
 
@@ -387,15 +392,48 @@ final class AppModel {
         let current = soleSelectedRowID ?? selectionFocusID ?? selectionAnchorID
         guard let r = RowSelection.move(from: current, in: orderedVisibleRowIDs, by: step) else { return }
         selectedRowIDs = r.selection
+        // Belt-and-suspenders: `openIfSingleFileSelected` (driven by the
+        // onChange(selectedRowIDs) observer) authoritatively re-sets the anchor
+        // and focus to this new sole selection. We set them here too so the values
+        // are already correct if a synchronous ⇧-extend reads them before the
+        // observer fires.
         selectionAnchorID = r.anchor
         selectionFocusID = r.anchor
     }
 
     /// ⇧↑ / ⇧↓ — extend a contiguous selection from the anchor. Seeds the anchor
     /// from the current sole selection on first use.
+    ///
+    /// LIMITATION (not full Finder parity): a native mouse ⇧-click mutates
+    /// `selectedRowIDs` directly, bypassing `selectionAnchorID`/`selectionFocusID`.
+    /// We mitigate the most common case below: if the live selection is a single
+    /// contiguous run but our `selectionFocusID` is stale (not at either end of
+    /// that run), we re-derive the focus as the run endpoint FARTHER from the
+    /// anchor, so the next keyboard ⇧-arrow grows the range from the visible edge
+    /// instead of collapsing it. Non-contiguous (⌘-clicked) selections fall back
+    /// to the stored anchor/focus unchanged — keyboard extend then re-grows a
+    /// contiguous range from the anchor, which is acceptable.
     func extendSelection(by step: Int) {
         if selectionAnchorID == nil { selectionAnchorID = soleSelectedRowID ?? orderedVisibleRowIDs.first }
         if selectionFocusID == nil { selectionFocusID = selectionAnchorID }
+
+        // Recover from a stale focus left by a native mouse ⇧-click.
+        if let endpoints = RowSelection.contiguousRunEndpoints(of: selectedRowIDs,
+                                                               in: orderedVisibleRowIDs) {
+            let focusIsEndpoint = selectionFocusID == endpoints.low || selectionFocusID == endpoints.high
+            if !focusIsEndpoint {
+                // Keep (or adopt) an anchor that sits at a run endpoint; pick the
+                // far endpoint as the new focus so we grow outward.
+                if selectionAnchorID == endpoints.high {
+                    selectionFocusID = endpoints.low
+                } else {
+                    // anchor is endpoints.low, or stale → anchor on low, focus high.
+                    selectionAnchorID = endpoints.low
+                    selectionFocusID = endpoints.high
+                }
+            }
+        }
+
         guard let anchor = selectionAnchorID, let focus = selectionFocusID,
               let r = RowSelection.extend(anchor: anchor, focus: focus,
                                           in: orderedVisibleRowIDs, by: step) else { return }
