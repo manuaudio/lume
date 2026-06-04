@@ -122,6 +122,9 @@ public final class LibraryStore {
         let uniqueNames = tagNames.filter { seen.insert($0).inserted }
         meta.tags = uniqueNames.map { tag(named: $0) }
         try? context.save()
+        // Removing a tag from its last file would otherwise leave a dangling
+        // tag in the sidebar; prune so "clear the field" actually removes it.
+        pruneOrphanTags()
     }
 
     public func meta(for path: String) -> FileMeta? {
@@ -169,10 +172,84 @@ public final class LibraryStore {
 
     // MARK: Tags
 
-    /// Fetch a tag by name, creating it if absent.
+    /// Every tag, sorted by name (also drives color cycling and orphan pruning).
+    public func allTags() -> [Tag] {
+        (try? context.fetch(
+            FetchDescriptor<Tag>(sortBy: [SortDescriptor(\.name)])
+        )) ?? []
+    }
+
+    /// The palette index a brand-new tag should receive — cycles through the
+    /// palette by current tag count so a fresh library spreads colors. Color
+    /// collisions are cosmetic (the user can recolor), so a best-effort spread is
+    /// fine; we don't try to guarantee uniqueness across an unsaved batch.
+    private func nextColorIndex() -> Int {
+        TagPalette.wrap(allTags().count)
+    }
+
+    /// The stored palette index for a tag, or 0 if it doesn't exist yet.
+    public func colorIndex(forTagNamed name: String) -> Int {
+        existingTag(named: name)?.colorIndex ?? 0
+    }
+
+    /// Change a tag's palette color. Out-of-range indexes are wrapped.
+    public func recolorTag(named name: String, colorIndex: Int) {
+        guard let t = existingTag(named: name) else { return }
+        t.colorIndex = TagPalette.wrap(colorIndex)
+        try? context.save()
+    }
+
+    /// Delete a tag outright: detach it from every file it tags, then remove it.
+    public func deleteTag(named name: String) {
+        guard let t = existingTag(named: name) else { return }
+        for file in t.files {
+            file.tags.removeAll { $0.name == name }
+        }
+        context.delete(t)
+        try? context.save()
+    }
+
+    /// Delete every tag no file references. This is the fix for "you can't remove
+    /// a tag" — clearing a tag off its last file otherwise leaves a dangling
+    /// entry in the sidebar forever. Returns how many tags were pruned.
+    @discardableResult
+    public func pruneOrphanTags() -> Int {
+        let orphans = allTags().filter { $0.files.isEmpty }
+        for t in orphans { context.delete(t) }
+        if !orphans.isEmpty { try? context.save() }
+        return orphans.count
+    }
+
+    /// Rename a tag. If `newName` already exists, MERGE: every file on the old
+    /// tag is moved onto the existing tag (de-duped) and the old tag is deleted.
+    /// Returns false when the source is missing or the name is blank/unchanged.
+    @discardableResult
+    public func renameTag(named oldName: String, to rawNewName: String) -> Bool {
+        let newName = rawNewName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != oldName,
+              let source = existingTag(named: oldName) else { return false }
+
+        if let target = existingTag(named: newName) {
+            // Merge. Snapshot first — we mutate each file's `tags` in the loop.
+            let affected = source.files
+            for file in affected {
+                if !file.tags.contains(where: { $0.name == newName }) {
+                    file.tags.append(target)
+                }
+                file.tags.removeAll { $0.name == oldName }
+            }
+            context.delete(source)
+        } else {
+            source.name = newName
+        }
+        try? context.save()
+        return true
+    }
+
+    /// Fetch a tag by name, creating it (with the next cycling color) if absent.
     private func tag(named name: String) -> Tag {
         if let existing = existingTag(named: name) { return existing }
-        let t = Tag(name: name)
+        let t = Tag(name: name, colorIndex: nextColorIndex())
         context.insert(t)
         return t
     }

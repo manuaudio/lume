@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import SwiftData
 import LumeCore
 
 /// Lazily lists the children of `parent`, honoring files-only + tag filter.
@@ -367,7 +368,8 @@ struct RowMetaView: View {
     let model: AppModel
 
     @Environment(\.modelContext) private var context
-    @State private var tagsText = ""
+    @Query private var allTags: [Tag]
+    @State private var tagNames: [String] = []
     @State private var notes = ""
     @State private var loaded = false
     @State private var saveTask: Task<Void, Never>?
@@ -376,14 +378,16 @@ struct RowMetaView: View {
 
     private var notesOpen: Bool { model.notesOpenPath == url.path }
 
+    /// Live color for a tag name from the reactive @Query (0 until first saved).
+    private func colorIndex(_ name: String) -> Int {
+        allTags.first { $0.name == name }?.colorIndex ?? 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                TextField("add tags (comma-separated)", text: $tagsText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                    .onSubmit { save() }
-                    .onChange(of: tagsText) { _, _ in scheduleSave() }
+                TagField(names: $tagNames, colorIndex: colorIndex, recolor: recolor)
+                    .onChange(of: tagNames) { _, _ in scheduleSave() }
                 Button {
                     model.notesOpenPath = notesOpen ? nil : url.path
                 } label: {
@@ -414,7 +418,7 @@ struct RowMetaView: View {
         guard !loaded else { return }
         let store = LibraryStore(context: context)
         let meta = store.meta(for: url.path)
-        tagsText = meta?.tags.map(\.name).joined(separator: ", ") ?? ""
+        tagNames = meta?.tags.map(\.name) ?? []
         notes = meta?.info ?? ""
         loaded = true
     }
@@ -430,10 +434,17 @@ struct RowMetaView: View {
 
     private func save() {
         let store = LibraryStore(context: context)
-        let tagNames = tagsText.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         store.setMeta(path: url.path, info: notes, tagNames: tagNames,
                       displayName: store.displayName(for: url.path) ?? "")
+    }
+
+    /// Inline recolor: flush pending edits first so the tag row exists, then
+    /// recolor it. Returns immediately if the store can't find it (brand-new,
+    /// not yet saved) — harmless, the auto-assigned color stands.
+    private func recolor(_ name: String, _ colorIndex: Int) {
+        saveTask?.cancel()
+        save()
+        LibraryStore(context: context).recolorTag(named: name, colorIndex: colorIndex)
     }
 }
 

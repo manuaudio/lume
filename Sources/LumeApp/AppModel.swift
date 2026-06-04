@@ -214,6 +214,12 @@ final class AppModel {
         }
     }
 
+    /// Apply an explicit list of tag names to every selected path (replaces each
+    /// path's tags). Used by the token-field multi-edit sheet.
+    func applyTagNamesToSelection(_ names: [String]) {
+        applyTagsToSelection(names.joined(separator: ","))
+    }
+
     func toggleExpanded(_ url: URL) {
         if expandedPaths.contains(url.path) { expandedPaths.remove(url.path) }
         else { expandedPaths.insert(url.path) }

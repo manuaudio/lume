@@ -13,6 +13,9 @@ struct SidebarView: View {
 
     @FocusState private var filterFocused: Bool
 
+    /// Drives the tag rename sheet (non-nil while renaming a specific tag).
+    @State private var renamingTag: TagRef?
+
     /// path → custom display name (non-empty only), kept reactive via @Query.
     private var names: [String: String] {
         Dictionary(uniqueKeysWithValues:
@@ -192,12 +195,41 @@ struct SidebarView: View {
         Section("Tags") {
             ForEach(tags) { tag in
                 let active = model.activeTagFilter == tag.name
-                Label(tag.name, systemImage: active ? "tag.fill" : "tag")
-                    .foregroundStyle(active ? Color.accentColor : .secondary)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        model.activeTagFilter = active ? nil : tag.name
+                HStack(spacing: 6) {
+                    Image(systemName: active ? "tag.fill" : "tag")
+                        .foregroundStyle(tagColor(tag.colorIndex))
+                    Text(tag.name)
+                        .foregroundStyle(active ? Color.primary : .secondary)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    model.activeTagFilter = active ? nil : tag.name
+                }
+                .contextMenu {
+                    Button("Rename…", systemImage: "pencil") {
+                        renamingTag = TagRef(name: tag.name)
                     }
+                    Menu("Color") {
+                        ForEach(0..<TagPalette.count, id: \.self) { i in
+                            Button(TagPalette.swatch(at: i).name) {
+                                model.store?.recolorTag(named: tag.name, colorIndex: i)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("Delete Tag", systemImage: "trash", role: .destructive) {
+                        if model.activeTagFilter == tag.name {
+                            model.activeTagFilter = nil
+                        }
+                        model.store?.deleteTag(named: tag.name)
+                    }
+                }
+            }
+        }
+        .sheet(item: $renamingTag) { ref in
+            TagRenameSheet(model: model, oldName: ref.name) {
+                renamingTag = nil
             }
         }
     }

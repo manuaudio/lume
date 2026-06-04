@@ -33,10 +33,15 @@ import SwiftData
 
 @Model public final class Tag {
     @Attribute(.unique) public var name: String
+    /// Index into `TagPalette.swatches` (0…7), resolved to a real color at the
+    /// UI layer. A PROPERTY-LEVEL default is required so existing stores migrate
+    /// without a launch crash when this additive field appears.
+    public var colorIndex: Int = 0
     public var files: [FileMeta]
 
-    public init(name: String, files: [FileMeta] = []) {
+    public init(name: String, colorIndex: Int = 0, files: [FileMeta] = []) {
         self.name = name
+        self.colorIndex = colorIndex
         self.files = files
     }
 }
