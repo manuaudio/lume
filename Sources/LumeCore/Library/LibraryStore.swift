@@ -217,6 +217,32 @@ public final class LibraryStore {
         return orphans.count
     }
 
+    /// Rename a tag. If `newName` already exists, MERGE: every file on the old
+    /// tag is moved onto the existing tag (de-duped) and the old tag is deleted.
+    /// Returns false when the source is missing or the name is blank/unchanged.
+    @discardableResult
+    public func renameTag(named oldName: String, to rawNewName: String) -> Bool {
+        let newName = rawNewName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != oldName,
+              let source = existingTag(named: oldName) else { return false }
+
+        if let target = existingTag(named: newName) {
+            // Merge. Snapshot first — we mutate each file's `tags` in the loop.
+            let affected = source.files
+            for file in affected {
+                if !file.tags.contains(where: { $0.name == newName }) {
+                    file.tags.append(target)
+                }
+                file.tags.removeAll { $0.name == oldName }
+            }
+            context.delete(source)
+        } else {
+            source.name = newName
+        }
+        try? context.save()
+        return true
+    }
+
     /// Fetch a tag by name, creating it (with the next cycling color) if absent.
     private func tag(named name: String) -> Tag {
         if let existing = existingTag(named: name) { return existing }

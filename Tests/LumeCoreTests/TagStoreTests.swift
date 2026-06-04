@@ -71,3 +71,36 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(removed == 1)
     #expect(store.allTags().map(\.name) == ["kept"])
 }
+
+@MainActor @Test func renameTagToNewNameJustRenames() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["wip"])
+    let ok = store.renameTag(named: "wip", to: "in-progress")
+    #expect(ok == true)
+    #expect(store.allTags().map(\.name) == ["in-progress"])
+    #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["in-progress"])
+}
+
+@MainActor @Test func renameTagIntoExistingNameMerges() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["wip"])
+    store.setMeta(path: "/b.md", info: "", tagNames: ["work"])
+    store.setMeta(path: "/c.md", info: "", tagNames: ["wip", "work"])
+    let ok = store.renameTag(named: "wip", to: "work")
+    #expect(ok == true)
+    #expect(store.allTags().map(\.name) == ["work"])
+    #expect(store.paths(taggedWith: "work") == ["/a.md", "/b.md", "/c.md"])
+    #expect(store.meta(for: "/c.md")?.tags.map(\.name) == ["work"])
+}
+
+@MainActor @Test func renameTagRejectsBlankOrUnchangedOrMissing() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["work"])
+    #expect(store.renameTag(named: "work", to: "   ") == false)
+    #expect(store.renameTag(named: "work", to: "work") == false)
+    #expect(store.renameTag(named: "ghost", to: "x") == false)
+    #expect(store.allTags().map(\.name) == ["work"])
+}
