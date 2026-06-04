@@ -34,6 +34,7 @@ final class AppModel {
                 if safe != r { browseRoot = safe; return }
             }
             persistBrowseRoot()
+            restartWatcher()
         }
     }
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
@@ -80,6 +81,20 @@ final class AppModel {
 
     @ObservationIgnored let files: FileServicing = FileService()
 
+    /// Caches directory enumeration so re-rendering the tree never hits the disk.
+    /// `@ObservationIgnored` on the reference itself (the model doesn't change
+    /// identity); views observe the cache's `revision` via `fileSystemRevision`.
+    @ObservationIgnored private let cache = FileSystemCache()
+
+    /// The single live filesystem watcher on `browseRoot`. Replaced (old one
+    /// stopped) whenever the browse root changes; see `restartWatcher()`.
+    @ObservationIgnored private var watcher: DirectoryWatcher?
+
+    /// External-change ticker: the cache's `revision`, exposed so the sidebar
+    /// tree can `.onChange` on it and re-read invalidated directories after a
+    /// Finder/other-app edit.
+    var fileSystemRevision: Int { cache.revision }
+
     init() {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
         showPinnedHidden = UserDefaults.standard.bool(forKey: "lume.showPinnedHidden")
@@ -117,11 +132,25 @@ final class AppModel {
     }
 
     func children(of node: FileNode, includeHidden: Bool = false) -> [FileNode] {
-        (try? files.enumerate(node.url, includeHidden: includeHidden)) ?? []
+        cache.children(of: node.url, includeHidden: includeHidden)
     }
 
     func children(of url: URL, includeHidden: Bool = false) -> [FileNode] {
-        (try? files.enumerate(url, includeHidden: includeHidden)) ?? []
+        cache.children(of: url, includeHidden: includeHidden)
+    }
+
+    /// (Re)start the filesystem watcher on the current `browseRoot`. Stops any
+    /// previous watcher first so only one stream is ever live. FSEvents change
+    /// events invalidate the affected directories in the cache (bumping its
+    /// `revision`), which the sidebar observes via `fileSystemRevision`.
+    private func restartWatcher() {
+        watcher?.stop()
+        watcher = nil
+        guard let root = browseRoot else { return }
+        watcher = DirectoryWatcher(root: root) { [weak self] changed in
+            guard let self else { return }
+            for path in changed { self.cache.invalidate(path: path) }
+        }
     }
 
     // MARK: Favorites

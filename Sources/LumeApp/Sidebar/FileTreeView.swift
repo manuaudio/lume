@@ -73,6 +73,11 @@ struct FileTreeView: View {
         // affects the `visibleChildren` filter, which re-evaluates reactively
         // via @Observable tracking — no new filesystem enumeration required.
         .onChange(of: model.showBrowserHidden) { _, _ in reload() }
+        // FSEvents (Finder/other-app edits) bump the cache revision; re-read so
+        // external create/rename/delete refresh the tree. The cache returns the
+        // freshly-invalidated directory's contents (a single disk read), not the
+        // whole tree.
+        .onChange(of: model.fileSystemRevision) { _, _ in reload() }
     }
 
     private var visibleChildren: [FileNode] {
