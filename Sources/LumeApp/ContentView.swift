@@ -18,6 +18,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
+        .focusedValue(\.appModel, model)
         .toolbar {
             ToolbarItemGroup {
                 Button {
