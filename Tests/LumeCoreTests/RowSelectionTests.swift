@@ -144,4 +144,59 @@ import Testing
         #expect(ep?.low == "b")
         #expect(ep?.high == "d")
     }
+
+    // MARK: revalidate (tag filter hides the open file)
+
+    // Ids are "section|d-or-f|path", matching SidebarRow.id.
+    private static let fileA = "browser|f|/x/a.md"
+    private static let fileB = "browser|f|/x/b.md"
+    private static let dir = "browser|d|/x/sub"
+
+    @Test func revalidateNilAllowedPassesThrough() {
+        // No active filter ⇒ nothing is cleared.
+        let r = RowSelection.revalidate(selection: [Self.fileA, Self.fileB],
+                                        anchor: Self.fileA, focus: Self.fileB,
+                                        allowed: nil)
+        #expect(r.selection == [Self.fileA, Self.fileB])
+        #expect(r.anchor == Self.fileA)
+        #expect(r.focus == Self.fileB)
+    }
+
+    @Test func revalidateDropsDisallowedFile() {
+        // Only a.md is allowed; b.md falls out of the selection.
+        let r = RowSelection.revalidate(selection: [Self.fileA, Self.fileB],
+                                        anchor: Self.fileB, focus: Self.fileB,
+                                        allowed: ["/x/a.md"])
+        #expect(r.selection == [Self.fileA])
+        #expect(r.anchor == nil)   // anchor pointed at dropped row
+        #expect(r.focus == nil)    // focus pointed at dropped row
+    }
+
+    @Test func revalidateKeepsDirectoriesRegardlessOfAllowed() {
+        // A directory row survives even though its path isn't in `allowed`.
+        let r = RowSelection.revalidate(selection: [Self.dir, Self.fileB],
+                                        anchor: Self.dir, focus: Self.fileB,
+                                        allowed: ["/x/a.md"])
+        #expect(r.selection == [Self.dir])
+        #expect(r.anchor == Self.dir)  // directory anchor preserved
+        #expect(r.focus == nil)        // file focus dropped
+    }
+
+    @Test func revalidateKeepsUndecodableIdsFailOpen() {
+        // An id that doesn't split into 3 parts is kept rather than silently lost.
+        let r = RowSelection.revalidate(selection: ["weird-id", Self.fileA],
+                                        anchor: nil, focus: nil,
+                                        allowed: Set<String>())
+        #expect(r.selection == ["weird-id"])
+    }
+
+    @Test func revalidatePathWithPipeDecodesCorrectly() {
+        // Paths may contain "|"; only the first two separators are structural.
+        let id = "browser|f|/x/a|b.md"
+        let r = RowSelection.revalidate(selection: [id], anchor: id, focus: id,
+                                        allowed: ["/x/a|b.md"])
+        #expect(r.selection == [id])
+        #expect(r.anchor == id)
+        #expect(r.focus == id)
+    }
 }

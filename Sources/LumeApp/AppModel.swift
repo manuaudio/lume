@@ -12,9 +12,13 @@ final class AppModel {
     var selectedFile: URL?
     /// Active tag filter (multi-tag). Empty ⇒ no filtering. Membership is toggled
     /// from the sidebar Tags section and the active-filter bar.
-    var activeTagFilters: Set<String> = []
+    var activeTagFilters: Set<String> = [] {
+        didSet { revalidateSelectionForFilter() }
+    }
     /// true = All/AND (intersection), false = Any/OR (union). Defaults to All.
-    var tagFilterMatchAll: Bool = true
+    var tagFilterMatchAll: Bool = true {
+        didSet { revalidateSelectionForFilter() }
+    }
 
     // Browser
     var browseRoot: URL? {
@@ -207,6 +211,27 @@ final class AppModel {
             : store.paths(taggedWithAny: activeTagFilters)
     }
 
+    /// After the tag filter changes, drop selection state that now references
+    /// hidden FILES so the editor header doesn't keep rendering a file you can no
+    /// longer see in the sidebar. Directories stay (still navigable), matching
+    /// `FileTreeView.visibleChildren`. When `tagFilteredPaths` is nil (no active
+    /// filter) NOTHING is cleared. Called from the filter mutators' didSet.
+    private func revalidateSelectionForFilter() {
+        guard let allowed = tagFilteredPaths else { return }
+        // FILE selection (editor): clear if its path fell out of the allowed set.
+        if let file = selectedFile, !allowed.contains(file.path) {
+            selectedFile = nil
+        }
+        // Row selection + keyboard anchor/focus: drop now-hidden file rows.
+        let r = RowSelection.revalidate(selection: selectedRowIDs,
+                                        anchor: selectionAnchorID,
+                                        focus: selectionFocusID,
+                                        allowed: allowed)
+        if r.selection != selectedRowIDs { selectedRowIDs = r.selection }
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
+    }
+
     // MARK: - Multi-selection commands
 
     /// Write the selected paths to the clipboard as newline-joined POSIX paths
@@ -271,6 +296,23 @@ final class AppModel {
     /// path's tags). Used by the token-field multi-edit sheet.
     func applyTagNamesToSelection(_ names: [String]) {
         applyTagsToSelection(names.joined(separator: ","))
+    }
+
+    /// The tag names COMMON to every selected file (set intersection of each
+    /// file's current tags), in stable sorted order. Seeds the bulk tag editor so
+    /// hitting Apply with replace-semantics shows the current shared state instead
+    /// of an empty field (which would wipe all tags). Files with no meta contribute
+    /// an empty set, so any such file empties the intersection.
+    func commonTagNamesInSelection() -> [String] {
+        guard let store else { return [] }
+        let urls = selectedURLs
+        guard let first = urls.first else { return [] }
+        var common = Set(store.meta(for: first.path)?.tags.map(\.name) ?? [])
+        for url in urls.dropFirst() {
+            common.formIntersection(store.meta(for: url.path)?.tags.map(\.name) ?? [])
+            if common.isEmpty { break }
+        }
+        return common.sorted()
     }
 
     func toggleExpanded(_ url: URL) {

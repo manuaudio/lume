@@ -31,9 +31,19 @@ struct MultiTagSheet: View {
                     isPresented = false
                 }
                 .keyboardShortcut(.defaultAction)
+                // Replace-semantics: an empty Apply would WIPE every selected
+                // file's tags (then orphan-prune the vocabulary). Disable it so an
+                // accidental empty Apply can't destroy data. A deliberate
+                // "clear all tags" would need its own explicit affordance.
+                .disabled(tagNames.isEmpty)
             }
         }
         .padding(16)
         .frame(width: 360)
+        // Seed the field with the selection's COMMON tags (intersection of each
+        // file's current tags) so the user sees the shared state instead of an
+        // empty field. With replace-semantics, intersection (not union) avoids
+        // forcing a tag onto files that didn't already carry it.
+        .onAppear { tagNames = model.commonTagNamesInSelection() }
     }
 }
