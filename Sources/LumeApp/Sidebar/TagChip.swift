@@ -9,15 +9,19 @@ func tagColor(_ index: Int) -> Color {
 }
 
 /// A compact colored pill for a single tag. When `onRemove` is non-nil an ✕
-/// button appears (used inside the editable token field).
+/// button appears (editable contexts). When `onRecolor` is non-nil the color dot
+/// becomes a button that opens a swatch popover for inline recolor.
 struct TagChip: View {
     let name: String
     let colorIndex: Int
     var onRemove: (() -> Void)? = nil
+    var onRecolor: ((Int) -> Void)? = nil
+
+    @State private var pickingColor = false
 
     var body: some View {
         HStack(spacing: 4) {
-            Circle().fill(tagColor(colorIndex)).frame(width: 7, height: 7)
+            colorDot
             Text(name).font(.caption).lineLimit(1)
             if let onRemove {
                 Button(action: onRemove) {
@@ -33,6 +37,23 @@ struct TagChip: View {
         .padding(.vertical, 3)
         .background(Capsule().fill(tagColor(colorIndex).opacity(0.18)))
         .overlay(Capsule().strokeBorder(tagColor(colorIndex).opacity(0.55), lineWidth: 1))
+    }
+
+    @ViewBuilder private var colorDot: some View {
+        let dot = Circle().fill(tagColor(colorIndex)).frame(width: 7, height: 7)
+        if let onRecolor {
+            Button { pickingColor = true } label: { dot }
+                .buttonStyle(.plain)
+                .help("Change color")
+                .popover(isPresented: $pickingColor, arrowEdge: .bottom) {
+                    TagSwatchPicker(current: colorIndex) { idx in
+                        onRecolor(idx)
+                        pickingColor = false
+                    }
+                }
+        } else {
+            dot
+        }
     }
 }
 
