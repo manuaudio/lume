@@ -48,6 +48,9 @@ final class AppModel {
     // Inline editing (which row is mid-edit)
     var renamingPath: String?
     var notesOpenPath: String?
+    /// The selected file whose inline tag editor is open. nil = collapsed
+    /// (tags show as read-only chips, or nothing when the file has none).
+    var tagsOpenPath: String?
 
     /// Injected once from `ContentView` so toolbar/sidebar actions can reach
     /// the SwiftData store without each view re-deriving it.
