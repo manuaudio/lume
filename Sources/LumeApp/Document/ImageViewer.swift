@@ -1,5 +1,11 @@
 import SwiftUI
 import AppKit
+import ImageIO
+
+/// Longest-side pixel cap above which a still image is downsampled. Generous
+/// enough that ordinary photos load at full resolution (crisp under the scroll
+/// view's up-to-16× magnification); only extreme images are capped.
+private let imageViewerMaxPixelSize = 6144
 
 /// Native image viewer for bitmap/vector formats (jpg/png/gif/heic/tiff/webp/…).
 ///
@@ -54,19 +60,63 @@ struct ImageViewer: NSViewRepresentable {
 
         Task { @MainActor in
             await ICloudCoordinator.ensureDownloaded(url)
-            // Read the bytes off the main thread (Data is Sendable, NSImage is
-            // not, so we cross the actor boundary with the raw data and build the
-            // image on main). The heavy file I/O stays off the UI thread; the
-            // layer-backed NSImageView rasterizes on the GPU at draw time.
-            let data = await Task.detached(priority: .userInitiated) {
-                try? Data(contentsOf: url)
+            // Decode off the main thread so the UI never hitches on large files.
+            // Pathologically large STILL images are downsampled via ImageIO (the
+            // GPU can't composite a 100-megapixel bitmap cheaply); normal and
+            // animated images keep the lazy `NSImage(data:)` path so GIF/HEIC
+            // animation and full-resolution zoom are preserved.
+            let decoded = await Task.detached(priority: .userInitiated) {
+                Self.decode(url)
             }.value
             // Ignore a stale decode if the user moved on to another file.
-            guard coordinator.token == token,
-                  let data, let image = NSImage(data: data) else { return }
+            guard coordinator.token == token else { return }
+            let image: NSImage?
+            switch decoded {
+            case let .downsampled(box): image = NSImage(cgImage: box.cg, size: box.size)
+            case let .full(data): image = NSImage(data: data)
+            case .none: image = nil
+            }
+            guard let image else { return }
             coordinator.imageView?.image = image
             coordinator.imageView?.frame.size = image.size
         }
+    }
+
+    /// Off-main decode decision. Reads only metadata first (cheap), then either
+    /// downsamples a huge still or returns the raw bytes for a faithful decode.
+    private nonisolated static func decode(_ url: URL) -> Decoded? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return .full(data)
+        }
+        // Animated images (frame count > 1) must keep their frames → full path.
+        if CGImageSourceGetCount(source) > 1 { return .full(data) }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let w = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let h = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        guard max(w, h) > imageViewerMaxPixelSize else { return .full(data) }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: imageViewerMaxPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return .full(data)
+        }
+        return .downsampled(CGImageBox(cg: cg, size: NSSize(width: cg.width, height: cg.height)))
+    }
+
+    /// Decode result crossing the actor boundary. `Data` is Sendable; `CGImage`
+    /// is immutable and thread-safe, so the box is safely `@unchecked Sendable`.
+    private enum Decoded: @unchecked Sendable {
+        case full(Data)
+        case downsampled(CGImageBox)
+    }
+
+    private struct CGImageBox: @unchecked Sendable {
+        let cg: CGImage
+        let size: NSSize
     }
 
     @MainActor

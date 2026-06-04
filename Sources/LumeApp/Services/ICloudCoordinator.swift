@@ -17,33 +17,30 @@ enum ICloudCoordinator {
         return status == .current
     }
 
-    /// Ensure an evicted iCloud placeholder is materialized, then call `completion`
-    /// on the main thread. If the item is already local (or not in iCloud) this
-    /// calls back immediately. The download polling happens on a background queue,
-    /// so the caller's thread is never blocked.
+    /// Ensure an evicted iCloud placeholder is materialized. Suspends (without
+    /// blocking any thread) until the item is local — or returns immediately if
+    /// it already is, or isn't an iCloud file. Gives up after ~5s.
+    static func ensureDownloaded(_ url: URL) async {
+        if isReady(url) { return }
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        // Poll via structured concurrency: `Task.sleep` suspends the task without
+        // tying up a thread (vs. the old `Thread.sleep` on a background queue).
+        for _ in 0..<50 {
+            if isReady(url) { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// Completion convenience over the async API: materializes the item, then
+    /// calls `completion` on the main actor.
     static func ensureDownloaded(_ url: URL, completion: @escaping @MainActor () -> Void) {
         if isReady(url) {
             MainActor.assumeIsolated(completion)
             return
         }
-
-        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            // Poll on a background queue (up to ~5s) so the main thread stays free.
-            for _ in 0..<50 {
-                if isReady(url) { break }
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-            DispatchQueue.main.async { MainActor.assumeIsolated(completion) }
-        }
-    }
-
-    /// async/await convenience over the completion API. Suspends until the item
-    /// is local (or immediately if it already is / isn't an iCloud file).
-    static func ensureDownloaded(_ url: URL) async {
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            ensureDownloaded(url) { cont.resume() }
+        Task {
+            await ensureDownloaded(url)
+            await MainActor.run { completion() }
         }
     }
 }
