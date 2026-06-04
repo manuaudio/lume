@@ -170,6 +170,28 @@ public final class LibraryStore {
         Set(files(taggedWith: name).map(\.path))
     }
 
+    /// Paths carrying EVERY one of `names` (set intersection) — the All/AND
+    /// filter. Empty input returns the empty set (callers skip filtering when
+    /// there are no active filters, so we never need "intersection of zero sets =
+    /// everything"). A name no file carries empties the result.
+    public func paths(taggedWithAll names: Set<String>) -> Set<String> {
+        guard let first = names.first else { return [] }
+        var result = paths(taggedWith: first)
+        for name in names.dropFirst() {
+            result.formIntersection(paths(taggedWith: name))
+            if result.isEmpty { break }
+        }
+        return result
+    }
+
+    /// Paths carrying ANY of `names` (set union) — the Any/OR filter. Empty input
+    /// returns the empty set. Missing names contribute nothing.
+    public func paths(taggedWithAny names: Set<String>) -> Set<String> {
+        var result = Set<String>()
+        for name in names { result.formUnion(paths(taggedWith: name)) }
+        return result
+    }
+
     // MARK: Tags
 
     /// Every tag, sorted by name (also drives color cycling and orphan pruning).
@@ -244,6 +266,25 @@ public final class LibraryStore {
         }
         try? context.save()
         return true
+    }
+
+    /// Merge several tags into one. Every file on a source tag is re-pointed onto
+    /// `survivor` (de-duped), the chosen `colorIndex` (if any) is applied, and the
+    /// emptied source tags are pruned. Built on `renameTag` (which already merges
+    /// on a name clash) so the per-file de-dup logic lives in exactly one place.
+    /// `survivor` need not pre-exist: the first matching source is renamed to it.
+    /// Returns true if the survivor exists after the operation.
+    @discardableResult
+    public func mergeTags(_ names: [String], into survivor: String, colorIndex: Int?) -> Bool {
+        // Fold every other named tag onto the survivor. `renameTag` renames when
+        // the survivor is absent and merges when it already exists, so iterating
+        // sources naturally creates-then-merges.
+        for name in names where name != survivor {
+            _ = renameTag(named: name, to: survivor)
+        }
+        if let colorIndex { recolorTag(named: survivor, colorIndex: colorIndex) }
+        pruneOrphanTags()
+        return existingTag(named: survivor) != nil
     }
 
     /// Fetch a tag by name, creating it (with the next cycling color) if absent.

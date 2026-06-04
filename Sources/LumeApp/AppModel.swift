@@ -10,7 +10,15 @@ final class AppModel {
     var rootFolder: URL?
     var tree: [FileNode] = []
     var selectedFile: URL?
-    var activeTagFilter: String?
+    /// Active tag filter (multi-tag). Empty ⇒ no filtering. Membership is toggled
+    /// from the sidebar Tags section and the active-filter bar.
+    var activeTagFilters: Set<String> = [] {
+        didSet { revalidateSelectionForFilter() }
+    }
+    /// true = All/AND (intersection), false = Any/OR (union). Defaults to All.
+    var tagFilterMatchAll: Bool = true {
+        didSet { revalidateSelectionForFilter() }
+    }
 
     // Browser
     var browseRoot: URL? {
@@ -35,10 +43,24 @@ final class AppModel {
     /// OPEN FOLDER browser: when true, Finder-hidden dotfiles (.env, .claude…)
     /// are revealed. Independent of `showPinnedHidden`.
     var showBrowserHidden = false { didSet { UserDefaults.standard.set(showBrowserHidden, forKey: "lume.showBrowserHidden") } }
+    /// Pillar ①: when true, the document pane shows the collapsible tag header
+    /// above the routed viewer. Persisted globally and remembered across launches
+    /// (default true). Toggled by the 🏷 toolbar button and the header's ⌃ collapse.
+    var showEditorTags = true { didSet { UserDefaults.standard.set(showEditorTags, forKey: "lume.showEditorTags") } }
     var expandedPaths: Set<String> = []
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
     var selectedRowIDs: Set<String> = []
+    /// The row id the most recent contiguous (⇧) keyboard extension is anchored
+    /// to, and the row id that currently has keyboard focus within that range.
+    /// Reset whenever a plain move/selection replaces the selection.
+    @ObservationIgnored var selectionAnchorID: String?
+    @ObservationIgnored var selectionFocusID: String?
+
+    /// Flat, top-to-bottom order of the currently-visible sidebar row ids.
+    /// Published by `SidebarView` each render so keyboard range math (which has
+    /// no view tree) can resolve neighbors. Not observed (read on key events).
+    @ObservationIgnored var orderedVisibleRowIDs: [String] = []
     /// True only while ⌃ (Control) is held — drives the transient path bar.
     var pathPeek = false
     /// Drives the multi-selection "Edit Tags…" sheet (see MultiTagSheet).
@@ -62,6 +84,11 @@ final class AppModel {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
         showPinnedHidden = UserDefaults.standard.bool(forKey: "lume.showPinnedHidden")
         showBrowserHidden = UserDefaults.standard.bool(forKey: "lume.showBrowserHidden")
+        // Default to shown on first run: only override the `true` default when a
+        // value was explicitly persisted (object(forKey:) is nil when unset).
+        if UserDefaults.standard.object(forKey: "lume.showEditorTags") != nil {
+            showEditorTags = UserDefaults.standard.bool(forKey: "lume.showEditorTags")
+        }
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {
@@ -157,6 +184,54 @@ final class AppModel {
         browseFilter = ""
     }
 
+    // MARK: - Tag filtering
+
+    /// True when any tag filter is active.
+    var hasTagFilter: Bool { !activeTagFilters.isEmpty }
+
+    /// Toggle a tag's membership in the active filter set.
+    func toggleTagFilter(_ name: String) {
+        if activeTagFilters.contains(name) { activeTagFilters.remove(name) }
+        else { activeTagFilters.insert(name) }
+    }
+
+    /// Remove a tag from the active filter set (active-filter bar ✕).
+    func removeTagFilter(_ name: String) { activeTagFilters.remove(name) }
+
+    /// Clear all active tag filters.
+    func clearTagFilters() { activeTagFilters.removeAll() }
+
+    /// The set of paths allowed by the current filter, or nil when no filter is
+    /// active (nil ⇒ "show everything", so callers skip filtering). Uses the
+    /// store's tested set helpers — All ⇒ intersection, Any ⇒ union.
+    var tagFilteredPaths: Set<String>? {
+        guard hasTagFilter, let store else { return nil }
+        return tagFilterMatchAll
+            ? store.paths(taggedWithAll: activeTagFilters)
+            : store.paths(taggedWithAny: activeTagFilters)
+    }
+
+    /// After the tag filter changes, drop selection state that now references
+    /// hidden FILES so the editor header doesn't keep rendering a file you can no
+    /// longer see in the sidebar. Directories stay (still navigable), matching
+    /// `FileTreeView.visibleChildren`. When `tagFilteredPaths` is nil (no active
+    /// filter) NOTHING is cleared. Called from the filter mutators' didSet.
+    private func revalidateSelectionForFilter() {
+        guard let allowed = tagFilteredPaths else { return }
+        // FILE selection (editor): clear if its path fell out of the allowed set.
+        if let file = selectedFile, !allowed.contains(file.path) {
+            selectedFile = nil
+        }
+        // Row selection + keyboard anchor/focus: drop now-hidden file rows.
+        let r = RowSelection.revalidate(selection: selectedRowIDs,
+                                        anchor: selectionAnchorID,
+                                        focus: selectionFocusID,
+                                        allowed: allowed)
+        if r.selection != selectedRowIDs { selectedRowIDs = r.selection }
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
+    }
+
     // MARK: - Multi-selection commands
 
     /// Write the selected paths to the clipboard as newline-joined POSIX paths
@@ -221,6 +296,23 @@ final class AppModel {
     /// path's tags). Used by the token-field multi-edit sheet.
     func applyTagNamesToSelection(_ names: [String]) {
         applyTagsToSelection(names.joined(separator: ","))
+    }
+
+    /// The tag names COMMON to every selected file (set intersection of each
+    /// file's current tags), in stable sorted order. Seeds the bulk tag editor so
+    /// hitting Apply with replace-semantics shows the current shared state instead
+    /// of an empty field (which would wipe all tags). Files with no meta contribute
+    /// an empty set, so any such file empties the intersection.
+    func commonTagNamesInSelection() -> [String] {
+        guard let store else { return [] }
+        let urls = selectedURLs
+        guard let first = urls.first else { return [] }
+        var common = Set(store.meta(for: first.path)?.tags.map(\.name) ?? [])
+        for url in urls.dropFirst() {
+            common.formIntersection(store.meta(for: url.path)?.tags.map(\.name) ?? [])
+            if common.isEmpty { break }
+        }
+        return common.sorted()
     }
 
     func toggleExpanded(_ url: URL) {
@@ -301,6 +393,31 @@ final class AppModel {
         selectedRowIDs.sorted().compactMap { SidebarRow.decode($0)?.url }
     }
 
+    /// The section the current multi-selection belongs to, if uniform.
+    /// (Mixed pinned+browser selections fall back to `.browser` for the action
+    /// set — pin/open semantics still make sense.) Derived from row id prefixes.
+    var selectionSection: SidebarSection {
+        let sections = Set(selectedRowIDs.compactMap { $0.split(separator: "|").first.map(String.init) })
+        return sections == ["pinned"] ? .pinned : .browser
+    }
+
+    /// True when every selected path is already pinned (drives Pin vs Unpin).
+    var selectionIsAllPinned: Bool {
+        let urls = selectedURLs
+        return !urls.isEmpty && urls.allSatisfy { isPinned($0) }
+    }
+
+    /// Pin every selected path that isn't already pinned (Browse action-bar Pin).
+    func pinSelection() {
+        guard let store else { return }
+        for id in selectedRowIDs {
+            guard let row = SidebarRow.decode(id), !store.isFavorite(path: row.url.path) else { continue }
+            if row.isDirectory { store.addFavoriteFolder(path: row.url.path) }
+            else { store.addFavorite(path: row.url.path,
+                                     kind: FileKind.detect(filename: row.url.lastPathComponent)) }
+        }
+    }
+
     /// Selected rows that are directories, in sidebar order (for Open).
     var selectedFolderURLs: [URL] {
         selectedRowIDs.sorted().compactMap {
@@ -317,10 +434,89 @@ final class AppModel {
     /// Open a file in the document view only when exactly one file row is
     /// selected, so extending a multi-selection doesn't thrash the document view.
     func openIfSingleFileSelected() {
+        if let id = soleSelectedRowID {
+            // A fresh single selection becomes the new anchor for ⇧-extends.
+            selectionAnchorID = id
+            selectionFocusID = id
+        }
         guard let id = soleSelectedRowID,
               let row = SidebarRow.decode(id), !row.isDirectory else { return }
         selectedFile = row.url
     }
+
+    /// ⌘A — select every visible row. Anchor on the current sole selection (so a
+    /// following ⇧↑/⇧↓ extends from where the user was, like Finder) and fall back
+    /// to the first row when there was no single prior selection.
+    func selectAllVisibleRows() {
+        // Capture the prior sole selection BEFORE replacing selectedRowIDs —
+        // afterwards soleSelectedRowID is nil whenever there's >1 visible row.
+        let priorSole = soleSelectedRowID
+        selectedRowIDs = RowSelection.all(in: orderedVisibleRowIDs)
+        selectionAnchorID = priorSole ?? orderedVisibleRowIDs.first
+        selectionFocusID = orderedVisibleRowIDs.last
+    }
+
+    /// ↑ / ↓ (no modifier) — move the single selection one row in the flat
+    /// visible order, replacing it (Finder plain-arrow). Re-anchors so a later
+    /// ⇧-extend starts fresh from the moved-to row. Wired explicitly because
+    /// native arrow traversal across this multi-section, recursively-rendered
+    /// List is unreliable.
+    func moveSelection(by step: Int) {
+        let current = soleSelectedRowID ?? selectionFocusID ?? selectionAnchorID
+        guard let r = RowSelection.move(from: current, in: orderedVisibleRowIDs, by: step) else { return }
+        selectedRowIDs = r.selection
+        // Belt-and-suspenders: `openIfSingleFileSelected` (driven by the
+        // onChange(selectedRowIDs) observer) authoritatively re-sets the anchor
+        // and focus to this new sole selection. We set them here too so the values
+        // are already correct if a synchronous ⇧-extend reads them before the
+        // observer fires.
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.anchor
+    }
+
+    /// ⇧↑ / ⇧↓ — extend a contiguous selection from the anchor. Seeds the anchor
+    /// from the current sole selection on first use.
+    ///
+    /// LIMITATION (not full Finder parity): a native mouse ⇧-click mutates
+    /// `selectedRowIDs` directly, bypassing `selectionAnchorID`/`selectionFocusID`.
+    /// We mitigate the most common case below: if the live selection is a single
+    /// contiguous run but our `selectionFocusID` is stale (not at either end of
+    /// that run), we re-derive the focus as the run endpoint FARTHER from the
+    /// anchor, so the next keyboard ⇧-arrow grows the range from the visible edge
+    /// instead of collapsing it. Non-contiguous (⌘-clicked) selections fall back
+    /// to the stored anchor/focus unchanged — keyboard extend then re-grows a
+    /// contiguous range from the anchor, which is acceptable.
+    func extendSelection(by step: Int) {
+        if selectionAnchorID == nil { selectionAnchorID = soleSelectedRowID ?? orderedVisibleRowIDs.first }
+        if selectionFocusID == nil { selectionFocusID = selectionAnchorID }
+
+        // Recover from a stale focus left by a native mouse ⇧-click.
+        if let endpoints = RowSelection.contiguousRunEndpoints(of: selectedRowIDs,
+                                                               in: orderedVisibleRowIDs) {
+            let focusIsEndpoint = selectionFocusID == endpoints.low || selectionFocusID == endpoints.high
+            if !focusIsEndpoint {
+                // Keep (or adopt) an anchor that sits at a run endpoint; pick the
+                // far endpoint as the new focus so we grow outward.
+                if selectionAnchorID == endpoints.high {
+                    selectionFocusID = endpoints.low
+                } else {
+                    // anchor is endpoints.low, or stale → anchor on low, focus high.
+                    selectionAnchorID = endpoints.low
+                    selectionFocusID = endpoints.high
+                }
+            }
+        }
+
+        guard let anchor = selectionAnchorID, let focus = selectionFocusID,
+              let r = RowSelection.extend(anchor: anchor, focus: focus,
+                                          in: orderedVisibleRowIDs, by: step) else { return }
+        selectedRowIDs = r.selection
+        selectionFocusID = r.focus
+    }
+
+    /// ⏎ — open the sole selected file, or drill into the sole selected folder.
+    /// Reuses the existing single-row open/drill behavior.
+    func activateSelectedRow() { openOrDrillSelected() }
 
     func renameSelected() { renamingPath = selectedRowURL?.path }
 

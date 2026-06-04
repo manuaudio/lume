@@ -11,17 +11,28 @@ struct FileTreeView: View {
     let hiddenPaths: Set<String>
     let section: SidebarSection
     var depth: Int = 0
+    /// The set of paths allowed by the active tag filter, or nil when no filter
+    /// is active. Computed ONCE at the top-level (root) `FileTreeView` per region
+    /// in `SidebarView` and threaded down into recursive children, so the
+    /// O(expanded-folders) SwiftData fetch behind `AppModel.tagFilteredPaths` runs
+    /// once per render instead of once per nested `FileTreeView` instance. The
+    /// parent computes it inside its view body, so the `@Observable` dependency on
+    /// `activeTagFilters`/`tagFilterMatchAll` stays tracked and the tree still
+    /// re-renders when filters toggle (or a file's tag membership changes).
+    let tagFilteredPaths: Set<String>?
 
     @State private var children: [FileNode]
 
     init(parent: URL, model: AppModel, names: [String: String] = [:],
-         hiddenPaths: Set<String>, section: SidebarSection, depth: Int = 0) {
+         hiddenPaths: Set<String>, section: SidebarSection, depth: Int = 0,
+         tagFilteredPaths: Set<String>?) {
         self.parent = parent
         self.model = model
         self.names = names
         self.hiddenPaths = hiddenPaths
         self.section = section
         self.depth = depth
+        self.tagFilteredPaths = tagFilteredPaths
         // Seed children at construction so the first render shows them. A bare
         // `ForEach` whose collection is initially empty never fires `.onAppear`,
         // so relying on it to kick off the first load left the tree permanently
@@ -49,7 +60,8 @@ struct FileTreeView: View {
 
             if node.isDirectory, model.expandedPaths.contains(node.url.path) {
                 FileTreeView(parent: node.url, model: model, names: names,
-                             hiddenPaths: hiddenPaths, section: section, depth: depth + 1)
+                             hiddenPaths: hiddenPaths, section: section, depth: depth + 1,
+                             tagFilteredPaths: tagFilteredPaths)
             }
         }
         .onAppear { reload() }
@@ -71,9 +83,11 @@ struct FileTreeView: View {
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
         }
-        if let tag = model.activeTagFilter {
-            let allowed = model.store?.paths(taggedWith: tag) ?? []
-            // Keep directories (so you can navigate into them) + tagged files.
+        if let allowed = tagFilteredPaths {
+            // Set-based filter: `allowed` is the intersection (All) or union (Any)
+            // of the active tags' paths, computed ONCE at the root FileTreeView and
+            // threaded down here. Keep directories (so you can navigate into them) +
+            // files in the allowed set. Covers BOTH regions since filtering lives here.
             nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
@@ -88,8 +102,10 @@ struct FileTreeView: View {
     }
 }
 
-/// One selectable file/folder row. Single-click a folder toggles inline
-/// expansion; double-click drills in. Files select (SidebarView opens them).
+/// One selectable file/folder row. Selection is native (List(selection:)); the
+/// disclosure triangle toggles inline expansion, and a double-click drills into
+/// a folder / opens a file. Single clicks are NOT intercepted, so ⌘/⇧
+/// multi-select works in both regions.
 struct SidebarItemRow: View {
     let url: URL
     let isDirectory: Bool
@@ -146,12 +162,26 @@ struct SidebarItemRow: View {
         // Drag-to-copy-paths only in the browser; in Favorites it would fight
         // the list's .onMove drag-to-reorder.
         .draggableIf(section == .browser, url)
+        // Double-click = Finder drill/open. The single click is handled by native
+        // List(selection:) (so ⌘/⇧ multi-select and .onMove keep working). For a
+        // file we set the SELECTION (not selectedFile directly) so the List, the
+        // RowMetaView (gated on selectedFile == url), the action bar, and the
+        // keyboard helpers all stay in sync — onChange(selectedRowIDs) →
+        // openIfSingleFileSelected() then sets selectedFile.
         .onTapGesture(count: 2) {
-            guard isDirectory else { return }
-            model.expandedPaths.remove(url.path)   // undo the single-tap's pending expand
-            model.drillInto(url)
+            if isDirectory {
+                model.expandedPaths.remove(url.path)   // collapse any pending inline expand
+                model.drillInto(url)
+            } else {
+                // Sync the selection (so List/action-bar/keyboard helpers agree),
+                // then open explicitly. The explicit open matters when this file
+                // is ALREADY the sole selection: the set is unchanged, so the
+                // onChange(selectedRowIDs)→openIfSingleFileSelected path doesn't
+                // fire, and without this the second click would do nothing.
+                model.selectedRowIDs = [SidebarRow(url: url, isDirectory: false, section: section).id]
+                model.selectedFile = url
+            }
         }
-        .onTapGesture(count: 1) { if isDirectory { model.toggleExpanded(url) } else { model.selectedFile = url } }
         .contextMenu {
             RowMenu(url: url,
                     isDirectory: isDirectory,
