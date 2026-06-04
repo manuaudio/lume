@@ -48,6 +48,27 @@ final class AppModel {
     /// above the routed viewer. Persisted globally and remembered across launches
     /// (default true). Toggled by the 🏷 toolbar button and the header's ⌃ collapse.
     var showEditorTags = true { didSet { UserDefaults.standard.set(showEditorTags, forKey: "lume.showEditorTags") } }
+
+    /// Phase 3: the "vibecoder" structured config editor. A global default
+    /// (persisted) plus per-file overrides (persisted), so any config file can be
+    /// flipped between the structured form and raw source and remembered.
+    var configStructuredByDefault = true {
+        didSet { UserDefaults.standard.set(configStructuredByDefault, forKey: "lume.configStructuredDefault") }
+    }
+    private var configViewOverrides: [String: Bool] = [:] {
+        didSet { UserDefaults.standard.set(configViewOverrides, forKey: "lume.configViewOverrides") }
+    }
+
+    /// Whether the structured editor (vs raw source) should show for `path`.
+    func configShowsStructured(forPath path: String) -> Bool {
+        configViewOverrides[path] ?? configStructuredByDefault
+    }
+
+    /// Remember a per-file structured/raw choice.
+    func setConfigShowsStructured(_ structured: Bool, forPath path: String) {
+        configViewOverrides[path] = structured
+    }
+
     var expandedPaths: Set<String> = []
 
     /// path → custom display name (non-empty only). Stable @Observable state,
@@ -125,6 +146,10 @@ final class AppModel {
         if UserDefaults.standard.object(forKey: "lume.showEditorTags") != nil {
             showEditorTags = UserDefaults.standard.bool(forKey: "lume.showEditorTags")
         }
+        if UserDefaults.standard.object(forKey: "lume.configStructuredDefault") != nil {
+            configStructuredByDefault = UserDefaults.standard.bool(forKey: "lume.configStructuredDefault")
+        }
+        configViewOverrides = (UserDefaults.standard.dictionary(forKey: "lume.configViewOverrides") as? [String: Bool]) ?? [:]
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {

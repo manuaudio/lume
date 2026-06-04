@@ -27,7 +27,13 @@ struct ConfigEditorView: View {
             content
         }
         .background(.background)
-        .onAppear(perform: reload)
+        .onAppear {
+            rawMode = !model.configShowsStructured(forPath: fileURL.path)
+            reload()
+        }
+        .onChange(of: rawMode) { _, raw in
+            model.setConfigShowsStructured(!raw, forPath: fileURL.path)
+        }
     }
 
     @ViewBuilder private var content: some View {
