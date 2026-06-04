@@ -44,6 +44,15 @@ import Testing
         #expect(out == ["alpha"])   // deduped; "apple" excluded; "beta" filtered out by prefix
     }
 
+    @Test func emptyQuerySortsCaseInsensitively() {
+        let out = TagSuggest.suggestions(
+            query: "",
+            allNames: ["Banana", "apple"],
+            existingOnFile: []
+        )
+        #expect(out == ["apple", "Banana"])   // lowercased-ascending order, original casing preserved
+    }
+
     @Test func shouldOfferCreateWhenDraftIsNovel() {
         #expect(TagSuggest.shouldOfferCreate(query: "fresh", allNames: ["work"], existingOnFile: []) == true)
     }

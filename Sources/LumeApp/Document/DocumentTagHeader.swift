@@ -83,6 +83,7 @@ struct DocumentTagHeader: View {
         .overlay(alignment: .bottom) { Divider() }
         .onAppear(perform: load)
         .onChange(of: url) { _, _ in loaded = false; load() }
+        .onChange(of: allTags) { _, _ in reloadFromStore() }
     }
 
     private var addButton: some View {
@@ -114,6 +115,15 @@ struct DocumentTagHeader: View {
         loaded = true
     }
 
+    /// Re-derive the file's tag membership from the store when the reactive tag
+    /// vocabulary changes (rename/delete/orphan-prune elsewhere). Tag add/remove
+    /// persists immediately, so the store is the source of truth — there is no
+    /// unsaved local tag state to clobber, so this is safe to run on any change.
+    private func reloadFromStore() {
+        let store = LibraryStore(context: context)
+        tagNames = store.meta(for: url.path)?.tags.map(\.name) ?? []
+    }
+
     /// Persist the current `tagNames`, preserving the file's existing notes/info
     /// and displayName (spec requirement: never clobber them).
     private func persist() {
@@ -135,7 +145,7 @@ struct DocumentTagHeader: View {
     }
 
     private func remove(_ name: String) {
-        tagNames.removeAll { $0 == name }
+        tagNames.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
         persist()   // setMeta auto-prunes the tag if this was its last file
     }
 
