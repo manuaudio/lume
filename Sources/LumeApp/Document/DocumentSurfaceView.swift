@@ -10,8 +10,13 @@ struct DocumentSurfaceView: View {
     var body: some View {
         Group {
             if let url = model.selectedFile, let kind = model.selectedKind {
-                viewer(for: url, kind: kind)
-                    .id(url) // rebuild the surface when the selection changes
+                VStack(spacing: 0) {
+                    if model.showEditorTags {
+                        DocumentTagHeader(url: url, model: model)
+                    }
+                    viewer(for: url, kind: kind)
+                        .id(url) // rebuild the surface when the selection changes
+                }
             } else {
                 emptyState
             }
