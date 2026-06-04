@@ -10,6 +10,9 @@ struct TagField: View {
     /// name → palette index (look up against a reactive @Query in the parent).
     let colorIndex: (String) -> Int
     var placeholder = "add tag"
+    /// When non-nil, each chip's color dot becomes an inline recolor control;
+    /// receives (tagName, newColorIndex). Nil = chips are not recolorable here.
+    var recolor: ((String, Int) -> Void)? = nil
 
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -17,7 +20,10 @@ struct TagField: View {
     var body: some View {
         FlowLayout(spacing: 6) {
             ForEach(names, id: \.self) { name in
-                TagChip(name: name, colorIndex: colorIndex(name)) { remove(name) }
+                TagChip(name: name,
+                        colorIndex: colorIndex(name),
+                        onRemove: { remove(name) },
+                        onRecolor: recolor.map { fn in { idx in fn(name, idx) } })
             }
             TextField(placeholder, text: $draft)
                 .textFieldStyle(.plain)
