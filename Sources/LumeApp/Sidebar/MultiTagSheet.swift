@@ -1,28 +1,33 @@
 import SwiftUI
+import SwiftData
+import LumeCore
 
-/// A small sheet that applies a comma-separated set of tags to every row in the
-/// current multi-selection. The single-row inline editor (RowMetaView) is
-/// unchanged; this is the multi-selection path.
 struct MultiTagSheet: View {
     let model: AppModel
     @Binding var isPresented: Bool
-    @State private var tagText: String = ""
+
+    @Query private var allTags: [Tag]
+    @State private var tagNames: [String] = []
+
+    private func colorIndex(_ name: String) -> Int {
+        allTags.first { $0.name == name }?.colorIndex ?? 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Edit Tags for \(model.selectedURLs.count) items")
                 .font(.headline)
-            Text("Comma-separated. Applies to every selected item.")
+            Text("Applies to every selected item, replacing their tags.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField("e.g. work, prod, review", text: $tagText)
-                .textFieldStyle(.roundedBorder)
+            TagField(names: $tagNames, colorIndex: colorIndex,
+                     placeholder: "e.g. work, prod, review")
             HStack {
                 Spacer()
                 Button("Cancel") { isPresented = false }
                     .keyboardShortcut(.cancelAction)
                 Button("Apply") {
-                    model.applyTagsToSelection(tagText)
+                    model.applyTagNamesToSelection(tagNames)
                     isPresented = false
                 }
                 .keyboardShortcut(.defaultAction)
