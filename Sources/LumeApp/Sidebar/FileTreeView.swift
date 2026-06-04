@@ -286,7 +286,7 @@ struct RowMenu: View {
                     model.editingTagsForSelection = true
                 } else {
                     model.selectedFile = url
-                    model.notesOpenPath = url.path
+                    model.tagsOpenPath = url.path
                 }
             }
 
@@ -373,80 +373,91 @@ struct RowMetaView: View {
     @State private var notes = ""
     @State private var loaded = false
     @State private var saveTask: Task<Void, Never>?
-    /// When false (the default), tags show as read-only chips; the editable
-    /// token field only appears once the user taps the tag button. Reset per
-    /// selection so every file opens collapsed.
-    @State private var editingTags = false
-
     private static let saveDebounce = Duration.milliseconds(400)
 
     private var notesOpen: Bool { model.notesOpenPath == url.path }
+    /// The inline tag editor is open for this file. Driven from the model so a
+    /// chip tap and the row's "Edit Tags…" context menu share one source of
+    /// truth (and so it works even when the file has no tags to tap).
+    private var editingTags: Bool { model.tagsOpenPath == url.path }
+    /// When the file has no tags and isn't being edited, nothing renders — the
+    /// row collapses to zero height (no perpetual field, no reserved space).
+    private var showsMeta: Bool { editingTags || !tagNames.isEmpty }
 
     /// Live color for a tag name from the reactive @Query (0 until first saved).
     private func colorIndex(_ name: String) -> Int {
         allTags.first { $0.name == name }?.colorIndex ?? 0
     }
 
-    /// Reveals/collapses the editable token field. Collapsing flushes the
-    /// pending save immediately so edits aren't lost on the debounce.
-    private var tagToggleButton: some View {
-        Button {
-            if editingTags {
-                saveTask?.cancel()
-                save()
-                editingTags = false
-            } else {
-                editingTags = true
-            }
-        } label: {
-            Image(systemName: editingTags ? "checkmark"
-                  : (tagNames.isEmpty ? "tag.badge.plus" : "tag"))
-        }
-        .buttonStyle(.borderless)
-        .help(editingTags ? "Done editing tags"
-              : (tagNames.isEmpty ? "Add tags" : "Edit tags"))
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                if editingTags {
-                    TagField(names: $tagNames, colorIndex: colorIndex, recolor: recolor)
-                        .onChange(of: tagNames) { _, _ in scheduleSave() }
-                } else if tagNames.isEmpty {
-                    Spacer(minLength: 0)
-                } else {
-                    FlowLayout(spacing: 4) {
-                        ForEach(tagNames, id: \.self) { name in
-                            TagChip(name: name, colorIndex: colorIndex(name))
-                        }
-                    }
-                }
-                tagToggleButton
-                Button {
-                    model.notesOpenPath = notesOpen ? nil : url.path
-                } label: {
-                    Image(systemName: notesOpen ? "note.text" : "note.text.badge.plus")
-                }
-                .buttonStyle(.borderless)
-                .help(notesOpen ? "Hide notes" : "Add notes")
-            }
-            if notesOpen {
-                TextField("Notes…", text: $notes, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .lineLimit(3...8)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-                    .onChange(of: notes) { _, _ in scheduleSave() }   // debounced autosave
+        VStack(alignment: .leading, spacing: 0) {
+            // Zero-size anchor so `load()` runs even when the visible content is
+            // empty — an otherwise-empty VStack may never fire `.onAppear`.
+            Color.clear.frame(width: 0, height: 0).onAppear(perform: load)
+
+            if editingTags {
+                editor
+                if notesOpen { notesField.padding(.top, 6) }
+            } else if !tagNames.isEmpty {
+                chips
             }
         }
         .padding(.leading, 18)
-        .padding(.vertical, 2)
-        .onAppear(perform: load)
-        .onDisappear { saveTask?.cancel(); save() }
-        .onChange(of: url) { _, _ in saveTask?.cancel(); loaded = false; editingTags = false; load() }
+        .padding(.vertical, showsMeta ? 2 : 0)
+        .onDisappear {
+            saveTask?.cancel(); save()
+            // Leaving the row collapses its editors so it reopens clean.
+            if model.tagsOpenPath == url.path { model.tagsOpenPath = nil }
+            if model.notesOpenPath == url.path { model.notesOpenPath = nil }
+        }
+        .onChange(of: url) { _, _ in saveTask?.cancel(); loaded = false; load() }
+    }
+
+    /// Collapsed state: read-only colored chips. Click anywhere to edit.
+    private var chips: some View {
+        FlowLayout(spacing: 4) {
+            ForEach(tagNames, id: \.self) { name in
+                TagChip(name: name, colorIndex: colorIndex(name))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { model.tagsOpenPath = url.path }
+        .help("Click to edit tags")
+    }
+
+    /// Editing state: the token field plus notes toggle and a Done button.
+    private var editor: some View {
+        HStack(spacing: 6) {
+            TagField(names: $tagNames, colorIndex: colorIndex, recolor: recolor)
+                .onChange(of: tagNames) { _, _ in scheduleSave() }
+            Button {
+                model.notesOpenPath = notesOpen ? nil : url.path
+            } label: {
+                Image(systemName: notesOpen ? "note.text" : "note.text.badge.plus")
+            }
+            .buttonStyle(.borderless)
+            .help(notesOpen ? "Hide notes" : "Add notes")
+            Button {
+                saveTask?.cancel(); save()
+                model.notesOpenPath = nil
+                model.tagsOpenPath = nil
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Done")
+        }
+    }
+
+    private var notesField: some View {
+        TextField("Notes…", text: $notes, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(.caption)
+            .lineLimit(3...8)
+            .padding(6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            .onChange(of: notes) { _, _ in scheduleSave() }   // debounced autosave
     }
 
     private func load() {
