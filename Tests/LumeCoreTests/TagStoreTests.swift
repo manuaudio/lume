@@ -47,3 +47,27 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     store.recolorTag(named: "ghost", colorIndex: 3)
     #expect(store.colorIndex(forTagNamed: "ghost") == 0)
 }
+
+@MainActor @Test func deleteTagRemovesItFromAllFiles() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["work", "keep"])
+    store.setMeta(path: "/b.md", info: "", tagNames: ["work"])
+    store.deleteTag(named: "work")
+    #expect(store.files(taggedWith: "work").isEmpty)
+    #expect(store.allTags().map(\.name) == ["keep"])
+    #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["keep"])
+    #expect(store.meta(for: "/b.md")?.tags.isEmpty == true)
+}
+
+@MainActor @Test func pruneOrphanTagsDeletesUnreferencedTags() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+    store.setMeta(path: "/a.md", info: "", tagNames: ["orphan", "kept"])
+    if let m = store.meta(for: "/a.md") {
+        m.tags = m.tags.filter { $0.name == "kept" }
+    }
+    let removed = store.pruneOrphanTags()
+    #expect(removed == 1)
+    #expect(store.allTags().map(\.name) == ["kept"])
+}

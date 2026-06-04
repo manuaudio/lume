@@ -196,6 +196,27 @@ public final class LibraryStore {
         try? context.save()
     }
 
+    /// Delete a tag outright: detach it from every file it tags, then remove it.
+    public func deleteTag(named name: String) {
+        guard let t = existingTag(named: name) else { return }
+        for file in t.files {
+            file.tags.removeAll { $0.name == name }
+        }
+        context.delete(t)
+        try? context.save()
+    }
+
+    /// Delete every tag no file references. This is the fix for "you can't remove
+    /// a tag" — clearing a tag off its last file otherwise leaves a dangling
+    /// entry in the sidebar forever. Returns how many tags were pruned.
+    @discardableResult
+    public func pruneOrphanTags() -> Int {
+        let orphans = allTags().filter { $0.files.isEmpty }
+        for t in orphans { context.delete(t) }
+        if !orphans.isEmpty { try? context.save() }
+        return orphans.count
+    }
+
     /// Fetch a tag by name, creating it (with the next cycling color) if absent.
     private func tag(named name: String) -> Tag {
         if let existing = existingTag(named: name) { return existing }
