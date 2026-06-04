@@ -88,8 +88,10 @@ struct FileTreeView: View {
     }
 }
 
-/// One selectable file/folder row. Single-click a folder toggles inline
-/// expansion; double-click drills in. Files select (SidebarView opens them).
+/// One selectable file/folder row. Selection is native (List(selection:)); the
+/// disclosure triangle toggles inline expansion, and a double-click drills into
+/// a folder / opens a file. Single clicks are NOT intercepted, so ⌘/⇧
+/// multi-select works in both regions.
 struct SidebarItemRow: View {
     let url: URL
     let isDirectory: Bool
@@ -146,12 +148,20 @@ struct SidebarItemRow: View {
         // Drag-to-copy-paths only in the browser; in Favorites it would fight
         // the list's .onMove drag-to-reorder.
         .draggableIf(section == .browser, url)
+        // Double-click = Finder drill/open. The single click is handled by native
+        // List(selection:) (so ⌘/⇧ multi-select and .onMove keep working). For a
+        // file we set the SELECTION (not selectedFile directly) so the List, the
+        // RowMetaView (gated on selectedFile == url), the action bar, and the
+        // keyboard helpers all stay in sync — onChange(selectedRowIDs) →
+        // openIfSingleFileSelected() then sets selectedFile.
         .onTapGesture(count: 2) {
-            guard isDirectory else { return }
-            model.expandedPaths.remove(url.path)   // undo the single-tap's pending expand
-            model.drillInto(url)
+            if isDirectory {
+                model.expandedPaths.remove(url.path)   // collapse any pending inline expand
+                model.drillInto(url)
+            } else {
+                model.selectedRowIDs = [SidebarRow(url: url, isDirectory: false, section: section).id]
+            }
         }
-        .onTapGesture(count: 1) { if isDirectory { model.toggleExpanded(url) } else { model.selectedFile = url } }
         .contextMenu {
             RowMenu(url: url,
                     isDirectory: isDirectory,
