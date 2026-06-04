@@ -20,21 +20,27 @@
 ## Phase 0 — Crash & correctness fixes (DONE)
 - [x] **JPEG crash.** `QLPreviewView.setPreviewItem` aborted (`_QLRaiseAssert`) when assigned before the view was in a window (local images ran the iCloud completion synchronously in `makeNSView`). Fix: native layer-backed `ImageViewer` (off-main decode, zoom/pan, GPU-composited) for images; `QuickLookViewer` (office/long-tail only) defers `previewItem` until in-window via structured concurrency. (commit e223dc6)
 
-## Phase 1 — Performance: kill the sidebar invalidation storm (IN PROGRESS)
-Root cause (audited): `SidebarView` holds `@Query allMeta:[FileMeta]` (every metadata row) and rebuilds `names`/`hiddenPaths` collections on every body eval, threaded **by value** into every row → one tag/notes/hide edit re-renders the whole tree; each re-render reconstructs `FileTreeView`s which re-read the disk via the **uncached** `FileService.enumerate`.
-- [ ] **`FileSystemKit` framework:** cached, FSEvents-watched, off-main directory enumeration. Sendable, actor/`@Observable`. Cache invalidated by real filesystem events (no polling).
-- [ ] **Stop the storm:** remove the all-metadata `@Query` from the view; maintain a stable, write-through metadata index (path → displayName/hidden) on the model so only the affected row updates. Pass stable references, not freshly-built collections.
-- [ ] Verify: build, tests for cache+watcher, Instruments launch trace sanity check.
+## Phase 1 — Performance: kill the sidebar invalidation storm (DONE)
+Root cause (audited): `SidebarView` holds `@Query allMeta:[FileMeta]` (every metadata row) and rebuilds `names`/`hiddenPaths` collections on every body eval, threaded **by value** into every row → one tag/notes/hide edit re-renders the whole tree; each re-render reconstructs `FileTreeView`s which re-read the disk via the **uncached** `FileService.enumerate`. (commits f6eb57d, de7fff8)
+- [x] **Directory-enumeration cache + watcher:** `FileSystemCache` (per-`(path,includeHidden)` memoization + revision ticker) and `DirectoryWatcher` (FSEvents, no polling) eliminate per-render disk I/O and auto-refresh on external changes. (Extracted into `FileSystemKit` in Phase 2.)
+- [x] **Stop the storm:** `MetaIndexLoader` isolates the all-metadata `@Query` in a leaf view; rows receive scalar `displayName: String?` / `isHidden: Bool` (not freshly-built collections) so only the affected row invalidates.
+- [x] Verify: build clean, 4 new `FileSystemCache` tests, 112/112 pass. *(Pending: user click-verification + Instruments launch trace.)*
 
-## Phase 2 — Maximal modularization (`Frameworks/`)
-Split the `LumeCore` grab-bag into focused, app-agnostic frameworks; thin `LumeApp`. Right-size to avoid SPM build overhead (use the `spm-build-analysis` skill).
-- `FileSystemKit` — FileNode, enumeration, cache, FSEvents watcher.
-- `LibraryKit` — SwiftData models (Tag/FileMeta/Favorite), `LibraryStore`, `TagSuggest`, `TagPalette`.
-- `DocumentKit` — `FileKind`, `DocumentRouter`, `DisplayName`, `Breadcrumb`, `PathExport`.
-- `ConfigKit` — structured config parse/round-trip + pluggable `ConfigFormat` registry (no UI).
-- `SelectionKit` — `RowSelection` (+ `SidebarRow` id math).
-- `LumeUI` — reusable SwiftUI components (TagChip, FlowLayout, TagField, structured-config editors).
-- `LumeApp` — executable: AppModel, scenes, wiring.
+## Phase 2 — Maximal modularization (`Frameworks/`) (DONE)
+Split the `LumeCore` grab-bag into focused, app-agnostic frameworks; thin `LumeApp`. (commits 55eaf60, 64b3d43)
+- [x] `FileSystemKit` (base) — `FileKind`, `FileNode`, `FileService`, `FileSystemCache`, `DirectoryWatcher`.
+- [x] `LibraryKit` → FileSystemKit — SwiftData models (Tag/FileMeta/Favorite/Bookmark), `LibraryStore`, `TagSuggest`, `TagPalette`.
+- [x] `DocumentKit` → FileSystemKit — `DocumentRouter`, `DisplayName`, `Breadcrumb`, `PathExport`.
+- [x] `ConfigKit` (leaf) — `EnvFile`. (pluggable `ConfigFormat` registry lands in Phase 3.)
+- [x] `SelectionKit` (leaf) — `RowSelection`.
+- [x] `LumeUI` → LibraryKit — reusable SwiftUI components (`TagChip`, `TagSwatchPicker`, `TagField`, `FlowLayout`).
+- [x] `LumeApp` — executable: AppModel, scenes, wiring.
+
+> **Decision — `FileKind` placement.** The original sketch put `FileKind` in `DocumentKit`, but it is used by `FileNode` (filesystem), `DocumentRouter` (document), and `LibraryStore` (library). Placing it in `DocumentKit` would force FileSystemKit and LibraryKit to depend *up* on the document layer. It now lives in the base `FileSystemKit`, keeping the dependency graph acyclic (FileSystemKit ← {LibraryKit, DocumentKit}; LibraryKit ← LumeUI; everything ← LumeApp).
+>
+> **Decision — umbrella facade.** `LumeCore` is retained as a thin target that `@_exported import`s the five logic kits, so existing `import LumeCore` sites in `LumeApp` are untouched while the inter-kit boundaries are compiler-enforced. Flipping app imports to direct kit imports and dropping the umbrella is a safe future cleanup. (`LumeUI` is *not* in the umbrella — UI views import it directly.)
+>
+> **`SidebarRow` id math** stays in `LumeApp/Sidebar` for now (couples to view identity); migrate to `SelectionKit` if it proves reusable. `EnvView` stays in `LumeApp` (couples to `AppModel`).
 
 ## Phase 3 — Structured "vibecoder-friendly" config viewers
 Editable structured views like the `.env` editor, **toggleable** (structured ⇄ raw source), with an **extensible registry** so any applicable format gets one.
