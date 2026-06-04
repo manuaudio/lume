@@ -373,6 +373,10 @@ struct RowMetaView: View {
     @State private var notes = ""
     @State private var loaded = false
     @State private var saveTask: Task<Void, Never>?
+    /// When false (the default), tags show as read-only chips; the editable
+    /// token field only appears once the user taps the tag button. Reset per
+    /// selection so every file opens collapsed.
+    @State private var editingTags = false
 
     private static let saveDebounce = Duration.milliseconds(400)
 
@@ -383,11 +387,42 @@ struct RowMetaView: View {
         allTags.first { $0.name == name }?.colorIndex ?? 0
     }
 
+    /// Reveals/collapses the editable token field. Collapsing flushes the
+    /// pending save immediately so edits aren't lost on the debounce.
+    private var tagToggleButton: some View {
+        Button {
+            if editingTags {
+                saveTask?.cancel()
+                save()
+                editingTags = false
+            } else {
+                editingTags = true
+            }
+        } label: {
+            Image(systemName: editingTags ? "checkmark"
+                  : (tagNames.isEmpty ? "tag.badge.plus" : "tag"))
+        }
+        .buttonStyle(.borderless)
+        .help(editingTags ? "Done editing tags"
+              : (tagNames.isEmpty ? "Add tags" : "Edit tags"))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                TagField(names: $tagNames, colorIndex: colorIndex, recolor: recolor)
-                    .onChange(of: tagNames) { _, _ in scheduleSave() }
+            HStack(spacing: 6) {
+                if editingTags {
+                    TagField(names: $tagNames, colorIndex: colorIndex, recolor: recolor)
+                        .onChange(of: tagNames) { _, _ in scheduleSave() }
+                } else if tagNames.isEmpty {
+                    Spacer(minLength: 0)
+                } else {
+                    FlowLayout(spacing: 4) {
+                        ForEach(tagNames, id: \.self) { name in
+                            TagChip(name: name, colorIndex: colorIndex(name))
+                        }
+                    }
+                }
+                tagToggleButton
                 Button {
                     model.notesOpenPath = notesOpen ? nil : url.path
                 } label: {
@@ -411,7 +446,7 @@ struct RowMetaView: View {
         .padding(.vertical, 2)
         .onAppear(perform: load)
         .onDisappear { saveTask?.cancel(); save() }
-        .onChange(of: url) { _, _ in saveTask?.cancel(); loaded = false; load() }
+        .onChange(of: url) { _, _ in saveTask?.cancel(); loaded = false; editingTags = false; load() }
     }
 
     private func load() {
