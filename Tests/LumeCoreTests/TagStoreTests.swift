@@ -1,6 +1,6 @@
 import Testing
 import SwiftData
-@testable import LumeCore
+@testable import LibraryKit
 
 @MainActor
 private func makeStore() throws -> (store: LibraryStore, container: ModelContainer) {

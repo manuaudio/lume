@@ -1,5 +1,5 @@
 import Testing
-@testable import LumeCore
+@testable import FileSystemKit
 
 @Test func detectsMarkdown() {
     #expect(FileKind.detect(filename: "README.md") == .markdown)

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import FileSystemKit
 
 @MainActor
 public final class LibraryStore {

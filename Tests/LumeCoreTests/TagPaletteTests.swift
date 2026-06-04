@@ -1,5 +1,5 @@
 import Testing
-@testable import LumeCore
+@testable import LibraryKit
 
 @Test func paletteHasEightSwatches() {
     #expect(TagPalette.count == 8)

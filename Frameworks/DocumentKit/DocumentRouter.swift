@@ -1,3 +1,5 @@
+import FileSystemKit
+
 /// The concrete surface used to display a document.
 public enum DocumentViewer: Equatable, Sendable {
     case markdownEditor   // CodeMirror styled-source (editable)

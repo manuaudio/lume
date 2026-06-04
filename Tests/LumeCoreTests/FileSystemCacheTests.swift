@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import LumeCore
+@testable import FileSystemKit
 
 /// Counting spy: records how many times `enumerate` is called so tests can prove
 /// the cache hits memory (one disk read) instead of re-enumerating per render.

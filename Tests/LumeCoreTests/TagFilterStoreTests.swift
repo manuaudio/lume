@@ -1,6 +1,6 @@
 import Testing
 import SwiftData
-@testable import LumeCore
+@testable import LibraryKit
 
 // Retain the `ModelContainer` for the whole test body: `LibraryStore` holds only
 // a `ModelContext`, and on this toolchain a context whose in-memory container has

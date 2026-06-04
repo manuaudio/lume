@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import LumeCore
+@testable import DocumentKit
 
 // MARK: isAmbiguous
 

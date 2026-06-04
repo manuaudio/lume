@@ -1,6 +1,6 @@
 import Testing
 import SwiftData
-@testable import LumeCore
+@testable import LibraryKit
 
 // NOTE: `makeStore()` returns the `ModelContainer` alongside the store, and each
 // test retains it for its whole body. `LibraryStore` only holds a `ModelContext`,

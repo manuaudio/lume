@@ -1,5 +1,6 @@
 import Testing
-@testable import LumeCore
+import FileSystemKit
+@testable import DocumentKit
 
 @Test func routesEachKindToExpectedViewer() {
     #expect(DocumentRouter.viewer(for: .markdown) == .markdownEditor)
