@@ -122,6 +122,9 @@ public final class LibraryStore {
         let uniqueNames = tagNames.filter { seen.insert($0).inserted }
         meta.tags = uniqueNames.map { tag(named: $0) }
         try? context.save()
+        // Removing a tag from its last file would otherwise leave a dangling
+        // tag in the sidebar; prune so "clear the field" actually removes it.
+        pruneOrphanTags()
     }
 
     public func meta(for path: String) -> FileMeta? {
