@@ -65,10 +65,16 @@ Cross-cutting; apply throughout. Audit against `latest-apis.md`.
   - [x] Native **View menu** (`LumeCommands`) with live state-reflecting toggles via `@FocusedValue(\.appModel)` — Tag header (⇧⌘T), Structured Config Editor, Show Hidden Files (⇧⌘.), Show Hidden Pins, Files Only. Plus existing Open (⌘O) + Navigate menu.
   - [ ] Services menu, Share menu, Spotlight indexing, Handoff (optional/later). Drag & drop, Quick Look already present.
 - **Windowing & state:** SwiftUI `Scene`s, multi-window/tabs where sensible, window state restoration, `SceneStorage`/`AppStorage`. (window frame autosave present; multi-window/tabs TBD.)
-- **System fit:** Dark mode, Dynamic Type, full VoiceOver/accessibility labels & traits, localization-ready (no hard-coded user strings where avoidable), reduced-motion respect. **(accessibility + localization pass still TODO.)**
-- **Security & distribution:** App Sandbox + least-privilege entitlements, security-scoped bookmarks for opened folders, hardened runtime, notarization-ready. **(TODO — affects distribution; needs a deliberate pass.)**
-- **Energy & responsiveness:** FSEvents instead of polling; debounced writes; lazy loading; no main-thread disk/network. (FSEvents + debounced writes already in place; iCloud poll removed above.)
-- **Cleanup:** delete dead/heavy code as modules are extracted; keep files focused. **(ongoing.)**
+- **System fit:** Dark mode, Dynamic Type, full VoiceOver/accessibility labels & traits, localization-ready (no hard-coded user strings where avoidable), reduced-motion respect.
+  - [x] Accessibility pass on custom controls: sidebar rows speak "<name>, folder/file[, pinned][, hidden]" with an Expand/Collapse action (chevron a11y-hidden); icon-only TagChip/swatch buttons + ImageViewer get spoken labels.
+  - [ ] Localization-ready string extraction; broader Dynamic Type / reduced-motion audit. (TODO)
+- **Security & distribution:** App Sandbox + least-privilege entitlements, security-scoped bookmarks for opened folders, hardened runtime, notarization-ready.
+  - [x] `SecurityScopedAccess`: app-scoped security bookmark for the opened folder, stored on `openFolder`, resolved on launch. Active in both modes (no-op unsandboxed).
+  - [x] `tools/Lume.entitlements` (sandbox + user-selected.read-write + bookmarks.app-scope) and `build-app.sh --sandbox` (signs with them; verified valid + entitled).
+  - [ ] **Sandbox NOT default** — a sandboxed build can't browse-from-home (only user-granted folders) and its SwiftData store moves to the per-app container (existing tags/favorites not visible). Enabling by default needs a UX decision (folder-granted browsing) + data-migration/export story. Hardened runtime + notarization need a Developer ID (not ad-hoc).
+- **Energy & responsiveness:** FSEvents instead of polling; debounced writes; lazy loading; no main-thread disk/network. (FSEvents + debounced writes in place; iCloud `Thread.sleep` poll removed.)
+- **Cleanup:** delete dead/heavy code as modules are extracted; keep files focused.
+  - [x] Dead-code audit (manual; no `periphery`): codebase is lean — no orphaned types/files, all notifications used, `Bookmark` is live legacy-migration support (not dead). Nothing to delete.
 
 ---
 
