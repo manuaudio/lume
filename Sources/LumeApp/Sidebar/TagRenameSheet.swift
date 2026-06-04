@@ -47,7 +47,7 @@ struct TagRenameSheet: View {
     }
 
     private func commit() {
-        model.store?.renameTag(named: oldName, to: newName)
+        model.store?.renameTag(named: oldName, to: trimmed)
         onClose()
     }
 }

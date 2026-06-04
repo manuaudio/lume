@@ -70,7 +70,9 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
-        let width = maxWidth == .infinity ? x : maxWidth
+        // In the unbounded case `x` includes a trailing `spacing`; drop it so the
+        // reported content width isn't one gap too wide.
+        let width = maxWidth == .infinity ? max(0, x - spacing) : maxWidth
         return CGSize(width: width, height: y + rowHeight)
     }
 
