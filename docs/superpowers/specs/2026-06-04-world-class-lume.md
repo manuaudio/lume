@@ -54,16 +54,21 @@ Editable structured views like the `.env` editor, **toggleable** (structured ⇄
 
 > **Honest limitations (documented):** Structured edits re-serialize, so **comments are not preserved** across a structured save in any format (the raw toggle keeps them). **TOML** additionally **re-sorts keys alphabetically** (toml++ exposes sorted keys); round-trips are stable but source key order isn't preserved. JSON/plist/YAML preserve key order.
 
-## Phase 4 — Modernization & "world-class OS X" sweep
+## Phase 4 — Modernization & "world-class OS X" sweep (IN PROGRESS)
 Cross-cutting; apply throughout. Audit against `latest-apis.md`.
 - **Concurrency:** Swift 6 strict concurrency clean; `async/await` for all I/O; actors for shared mutable state; remove `DispatchQueue`/`Thread.sleep` polling.
+  - [x] Package is `swift-tools-version: 6.0` (Swift 6 language mode → strict concurrency on); builds clean, no warnings.
+  - [x] `ICloudCoordinator` download-wait rewritten from a `Thread.sleep`-on-a-global-queue poll to a structured-concurrency `Task.sleep` wait (no thread tied up). (commit: native sweep 1)
 - **Rendering / hardware acceleration:** layer-backed, GPU-composited views; downsample large images; PDFKit page rendering; consider Core Image/Metal for any image processing; ProMotion-friendly (no needless animations; `value`-scoped animations only).
+  - [x] `ImageViewer` downsamples pathologically large STILL images via ImageIO (longest side > 6144px); animated/normal images keep the lazy `NSImage(data:)` path (GIF/HEIC animation + full-res zoom preserved). Off-main decode; `CGImage` crosses the actor boundary via a Sendable box.
 - **Mac-native integration:** rich menu-bar `Commands`, full keyboard navigation & shortcuts, customizable toolbar, Services menu, drag & drop, Quick Look, Spotlight/`CSSearchableItem` indexing (optional), Handoff/Continuity (optional), Share menu.
-- **Windowing & state:** SwiftUI `Scene`s, multi-window/tabs where sensible, window state restoration, `SceneStorage`/`AppStorage`.
-- **System fit:** Dark mode, Dynamic Type, full VoiceOver/accessibility labels & traits, localization-ready (no hard-coded user strings where avoidable), reduced-motion respect.
-- **Security & distribution:** App Sandbox + least-privilege entitlements, security-scoped bookmarks for opened folders, hardened runtime, notarization-ready.
-- **Energy & responsiveness:** FSEvents instead of polling; debounced writes; lazy loading; no main-thread disk/network.
-- **Cleanup:** delete dead/heavy code as modules are extracted; keep files focused.
+  - [x] Native **View menu** (`LumeCommands`) with live state-reflecting toggles via `@FocusedValue(\.appModel)` — Tag header (⇧⌘T), Structured Config Editor, Show Hidden Files (⇧⌘.), Show Hidden Pins, Files Only. Plus existing Open (⌘O) + Navigate menu.
+  - [ ] Services menu, Share menu, Spotlight indexing, Handoff (optional/later). Drag & drop, Quick Look already present.
+- **Windowing & state:** SwiftUI `Scene`s, multi-window/tabs where sensible, window state restoration, `SceneStorage`/`AppStorage`. (window frame autosave present; multi-window/tabs TBD.)
+- **System fit:** Dark mode, Dynamic Type, full VoiceOver/accessibility labels & traits, localization-ready (no hard-coded user strings where avoidable), reduced-motion respect. **(accessibility + localization pass still TODO.)**
+- **Security & distribution:** App Sandbox + least-privilege entitlements, security-scoped bookmarks for opened folders, hardened runtime, notarization-ready. **(TODO — affects distribution; needs a deliberate pass.)**
+- **Energy & responsiveness:** FSEvents instead of polling; debounced writes; lazy loading; no main-thread disk/network. (FSEvents + debounced writes already in place; iCloud poll removed above.)
+- **Cleanup:** delete dead/heavy code as modules are extracted; keep files focused. **(ongoing.)**
 
 ---
 
