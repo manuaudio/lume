@@ -35,6 +35,12 @@ struct ContentView: View {
                 .help(isFavorited ? "Remove from Favorites" : "Add to Favorites")
                 .disabled(model.selectedFile == nil)
 
+                Button {
+                    model.showEditorTags.toggle()
+                } label: {
+                    Label("Tags", systemImage: model.showEditorTags ? "tag.fill" : "tag")
+                }
+                .help(model.showEditorTags ? "Hide the document tag header" : "Show the document tag header")
             }
         }
         .onAppear {
