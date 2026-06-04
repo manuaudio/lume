@@ -103,6 +103,13 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { topBar }
+        .safeAreaInset(edge: .bottom) {
+            if model.selectedRowIDs.count >= 2 {
+                SidebarActionBar(model: model, hiddenPaths: hiddenPaths)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: model.selectedRowIDs.count >= 2)
         .background(ModifierMonitor(pathPeek: Binding(get: { model.pathPeek },
                                                       set: { model.pathPeek = $0 })))
         .sheet(isPresented: Binding(get: { model.editingTagsForSelection },

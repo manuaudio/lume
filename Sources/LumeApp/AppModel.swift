@@ -320,6 +320,31 @@ final class AppModel {
         selectedRowIDs.sorted().compactMap { SidebarRow.decode($0)?.url }
     }
 
+    /// The section the current multi-selection belongs to, if uniform.
+    /// (Mixed pinned+browser selections fall back to `.browser` for the action
+    /// set — pin/open semantics still make sense.) Derived from row id prefixes.
+    var selectionSection: SidebarSection {
+        let sections = Set(selectedRowIDs.compactMap { $0.split(separator: "|").first.map(String.init) })
+        return sections == ["pinned"] ? .pinned : .browser
+    }
+
+    /// True when every selected path is already pinned (drives Pin vs Unpin).
+    var selectionIsAllPinned: Bool {
+        let urls = selectedURLs
+        return !urls.isEmpty && urls.allSatisfy { isPinned($0) }
+    }
+
+    /// Pin every selected path that isn't already pinned (Browse action-bar Pin).
+    func pinSelection() {
+        guard let store else { return }
+        for id in selectedRowIDs {
+            guard let row = SidebarRow.decode(id), !store.isFavorite(path: row.url.path) else { continue }
+            if row.isDirectory { store.addFavoriteFolder(path: row.url.path) }
+            else { store.addFavorite(path: row.url.path,
+                                     kind: FileKind.detect(filename: row.url.lastPathComponent)) }
+        }
+    }
+
     /// Selected rows that are directories, in sidebar order (for Open).
     var selectedFolderURLs: [URL] {
         selectedRowIDs.sorted().compactMap {
