@@ -35,6 +35,10 @@ final class AppModel {
     /// OPEN FOLDER browser: when true, Finder-hidden dotfiles (.env, .claude…)
     /// are revealed. Independent of `showPinnedHidden`.
     var showBrowserHidden = false { didSet { UserDefaults.standard.set(showBrowserHidden, forKey: "lume.showBrowserHidden") } }
+    /// Pillar ①: when true, the document pane shows the collapsible tag header
+    /// above the routed viewer. Persisted globally and remembered across launches
+    /// (default true). Toggled by the 🏷 toolbar button and the header's ⌃ collapse.
+    var showEditorTags = true { didSet { UserDefaults.standard.set(showEditorTags, forKey: "lume.showEditorTags") } }
     var expandedPaths: Set<String> = []
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
@@ -62,6 +66,11 @@ final class AppModel {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
         showPinnedHidden = UserDefaults.standard.bool(forKey: "lume.showPinnedHidden")
         showBrowserHidden = UserDefaults.standard.bool(forKey: "lume.showBrowserHidden")
+        // Default to shown on first run: only override the `true` default when a
+        // value was explicitly persisted (object(forKey:) is nil when unset).
+        if UserDefaults.standard.object(forKey: "lume.showEditorTags") != nil {
+            showEditorTags = UserDefaults.standard.bool(forKey: "lume.showEditorTags")
+        }
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {
