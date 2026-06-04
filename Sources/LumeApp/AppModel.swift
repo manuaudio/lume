@@ -49,6 +49,27 @@ final class AppModel {
     /// (default true). Toggled by the 🏷 toolbar button and the header's ⌃ collapse.
     var showEditorTags = true { didSet { UserDefaults.standard.set(showEditorTags, forKey: "lume.showEditorTags") } }
     var expandedPaths: Set<String> = []
+
+    /// path → custom display name (non-empty only). Stable @Observable state,
+    /// updated ONCE by `MetaIndexLoader` from the all-metadata @Query — never
+    /// rebuilt per render. Rows look up their own scalar (`displayName(forPath:)`)
+    /// so editing one file re-renders only that row, not the whole tree.
+    var displayNames: [String: String] = [:]
+    /// Paths flagged hidden. Same isolation rationale as `displayNames`.
+    var hiddenPaths: Set<String> = []
+
+    /// Per-row scalar lookups. Rows depend on these (not the whole dict), so
+    /// SwiftUI skips re-rendering rows whose scalar is unchanged.
+    func displayName(forPath path: String) -> String? { displayNames[path] }
+    func isHidden(_ path: String) -> Bool { hiddenPaths.contains(path) }
+
+    /// Replace the metadata index. Called by the isolated `MetaIndexLoader` leaf
+    /// view on appear and whenever the all-metadata @Query changes — the only
+    /// place the expensive full-table fetch touches the model.
+    func updateMetaIndex(displayNames: [String: String], hiddenPaths: Set<String>) {
+        if self.displayNames != displayNames { self.displayNames = displayNames }
+        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths }
+    }
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
     var selectedRowIDs: Set<String> = []
