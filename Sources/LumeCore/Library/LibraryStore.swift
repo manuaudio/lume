@@ -169,10 +169,30 @@ public final class LibraryStore {
 
     // MARK: Tags
 
-    /// Fetch a tag by name, creating it if absent.
+    /// Every tag, sorted by name (also drives color cycling and orphan pruning).
+    public func allTags() -> [Tag] {
+        (try? context.fetch(
+            FetchDescriptor<Tag>(sortBy: [SortDescriptor(\.name)])
+        )) ?? []
+    }
+
+    /// The palette index a brand-new tag should receive — cycles through the
+    /// palette by current tag count so a fresh library spreads colors. Color
+    /// collisions are cosmetic (the user can recolor), so a best-effort spread is
+    /// fine; we don't try to guarantee uniqueness across an unsaved batch.
+    private func nextColorIndex() -> Int {
+        TagPalette.wrap(allTags().count)
+    }
+
+    /// The stored palette index for a tag, or 0 if it doesn't exist yet.
+    public func colorIndex(forTagNamed name: String) -> Int {
+        existingTag(named: name)?.colorIndex ?? 0
+    }
+
+    /// Fetch a tag by name, creating it (with the next cycling color) if absent.
     private func tag(named name: String) -> Tag {
         if let existing = existingTag(named: name) { return existing }
-        let t = Tag(name: name)
+        let t = Tag(name: name, colorIndex: nextColorIndex())
         context.insert(t)
         return t
     }
