@@ -57,13 +57,17 @@ struct SidebarView: View {
     /// render — a per-keystroke main-thread hang). Instead it is recomputed only
     /// from the explicit `.onChange` triggers below, for the inputs that actually
     /// change the visible STRUCTURE/order — never on `selectedRowIDs`.
-    private func computeOrderedRowIDs() -> [String] {
+    /// `tagFilteredPaths` is computed ONCE by the caller and threaded through the
+    /// whole walk, so the SwiftData fetch behind `AppModel.tagFilteredPaths` runs a
+    /// single time per recompute instead of once per visited folder.
+    private func computeOrderedRowIDs(tagFilteredPaths: Set<String>?) -> [String] {
         var ids: [String] = []
 
         func walk(_ url: URL, isDir: Bool, section: SidebarSection, includeHidden: Bool) {
             ids.append(SidebarRow(url: url, isDirectory: isDir, section: section).id)
             guard isDir, model.expandedPaths.contains(url.path) else { return }
-            for child in visibleChildren(of: url, section: section, includeHidden: includeHidden) {
+            for child in visibleChildren(of: url, section: section, includeHidden: includeHidden,
+                                         tagFilteredPaths: tagFilteredPaths) {
                 walk(child.url, isDir: child.isDirectory, section: section, includeHidden: includeHidden)
             }
         }
@@ -74,7 +78,8 @@ struct SidebarView: View {
         }
         if let root = model.browseRoot {
             for child in visibleChildren(of: root, section: .browser,
-                                         includeHidden: model.showBrowserHidden) {
+                                         includeHidden: model.showBrowserHidden,
+                                         tagFilteredPaths: tagFilteredPaths) {
                 walk(child.url, isDir: child.isDirectory, section: .browser,
                      includeHidden: model.showBrowserHidden)
             }
@@ -120,16 +125,18 @@ struct SidebarView: View {
     /// (`model.tagFilteredPaths`, Phase C) so the keyboard-nav flat order can never
     /// diverge from the rendered tree. Keep them in lockstep on any future change.
     private func visibleChildren(of parent: URL, section: SidebarSection,
-                                 includeHidden: Bool) -> [FileNode] {
+                                 includeHidden: Bool,
+                                 tagFilteredPaths: Set<String>?) -> [FileNode] {
         var nodes = model.children(of: parent, includeHidden: includeHidden)
         if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
         }
-        if let allowed = model.tagFilteredPaths {
+        if let allowed = tagFilteredPaths {
             // Shared filter source of truth with FileTreeView.visibleChildren:
             // keep the keyboard-nav flat order (orderedRowIDs) identical to the
-            // rendered tree. All ⇒ intersection, Any ⇒ union; directories kept.
+            // rendered tree. `allowed` is computed ONCE by the caller and threaded
+            // in. All ⇒ intersection, Any ⇒ union; directories kept.
             nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
@@ -139,16 +146,26 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        List(selection: selection) {
-            pinnedSection
+        // Compute the active tag-filter path set ONCE per render. Reading it here in
+        // the view body keeps the @Observable dependency (activeTagFilters /
+        // tagFilterMatchAll, and the tag-membership-derived set) tracked, so the
+        // tree still re-renders when filters toggle or a file's tag membership
+        // changes under an active filter. Threaded into the top-level FileTreeViews
+        // and the match-count label so the O(expanded-folders) SwiftData fetch runs
+        // a single time instead of a dozen+ times per render.
+        let tagFilteredPaths = model.tagFilteredPaths
+        return List(selection: selection) {
+            pinnedSection(tagFilteredPaths: tagFilteredPaths)
             if !tags.isEmpty { tagsSection }
-            browserSection
+            browserSection(tagFilteredPaths: tagFilteredPaths)
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) {
             VStack(spacing: 0) {
                 topBar
-                if model.hasTagFilter { activeFilterBar }
+                if model.hasTagFilter {
+                    activeFilterBar(matchCount: tagFilteredPaths?.count ?? 0)
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -172,9 +189,11 @@ struct SidebarView: View {
         // folds every such input into one Equatable value, so a single onChange
         // covers them all and the expensive disk walk runs only when needed.
         .onChange(of: rowOrderSignature) { _, _ in
-            model.orderedVisibleRowIDs = computeOrderedRowIDs()
+            model.orderedVisibleRowIDs = computeOrderedRowIDs(tagFilteredPaths: model.tagFilteredPaths)
         }
-        .onAppear { model.orderedVisibleRowIDs = computeOrderedRowIDs() }
+        .onAppear {
+            model.orderedVisibleRowIDs = computeOrderedRowIDs(tagFilteredPaths: model.tagFilteredPaths)
+        }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
         // notes editors. Each returns `.handled` only when it acts.
@@ -263,7 +282,10 @@ struct SidebarView: View {
 
     /// Active tag-filter bar: removable chips + All/Any toggle + match count +
     /// Clear. Only rendered when `model.hasTagFilter`.
-    private var activeFilterBar: some View {
+    /// `matchCount` is the size of the active-filter path set, computed ONCE in the
+    /// body and passed in — it was previously read twice here (count + pluralization),
+    /// each triggering the SwiftData fetch behind `tagFilteredPaths`.
+    private func activeFilterBar(matchCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Picker("", selection: Binding(get: { model.tagFilterMatchAll },
@@ -276,7 +298,7 @@ struct SidebarView: View {
                 .fixedSize()
                 .help("All = match every tag (AND); Any = match any tag (OR)")
                 Spacer(minLength: 0)
-                Text("\(model.tagFilteredPaths?.count ?? 0) match\(model.tagFilteredPaths?.count == 1 ? "" : "es")")
+                Text("\(matchCount) match\(matchCount == 1 ? "" : "es")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Clear") { model.clearTagFilters() }
@@ -328,7 +350,7 @@ struct SidebarView: View {
         return name.isEmpty ? "OPEN FOLDER" : "OPEN FOLDER · \(name)"
     }
 
-    @ViewBuilder private var pinnedSection: some View {
+    @ViewBuilder private func pinnedSection(tagFilteredPaths: Set<String>?) -> some View {
         Section {
             if favorites.isEmpty {
                 Text("Right-click any file or folder to pin it.")
@@ -349,7 +371,8 @@ struct SidebarView: View {
                     // in place (the curation surface), mirroring the browser tree.
                     if isDir, model.expandedPaths.contains(url.path) {
                         FileTreeView(parent: url, model: model, names: names,
-                                     hiddenPaths: hiddenPaths, section: .pinned, depth: 1)
+                                     hiddenPaths: hiddenPaths, section: .pinned, depth: 1,
+                                     tagFilteredPaths: tagFilteredPaths)
                     }
                 }
                 .onMove { indices, newOffset in
@@ -428,12 +451,13 @@ struct SidebarView: View {
 
     // MARK: Browser
 
-    @ViewBuilder private var browserSection: some View {
+    @ViewBuilder private func browserSection(tagFilteredPaths: Set<String>?) -> some View {
         Section {
             pathPeekBar
             if let root = model.browseRoot {
                 FileTreeView(parent: root, model: model, names: names,
-                             hiddenPaths: hiddenPaths, section: .browser, depth: 0)
+                             hiddenPaths: hiddenPaths, section: .browser, depth: 0,
+                             tagFilteredPaths: tagFilteredPaths)
                     .opacity(model.pathPeek ? 0.4 : 1)
             }
         } header: {

@@ -153,7 +153,14 @@ struct TagManagerSheet: View {
             Button("Color") { pickingColor = true }
                 .disabled(selection.isEmpty)
                 .popover(isPresented: $pickingColor, arrowEdge: .top) {
-                    TagSwatchPicker(current: 0) { idx in
+                    // Seed from the selected tag's existing color when exactly one
+                    // is selected (mirrors how the merge composer seeds
+                    // mergeColorIndex). For a multi-select there's no single source
+                    // color, so fall back to 0.
+                    let seed = selection.count == 1
+                        ? (store?.colorIndex(forTagNamed: selectedNames[0]) ?? 0)
+                        : 0
+                    TagSwatchPicker(current: seed) { idx in
                         for n in selectedNames { store?.recolorTag(named: n, colorIndex: idx) }
                         pickingColor = false
                     }
