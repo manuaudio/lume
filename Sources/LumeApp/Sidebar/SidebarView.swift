@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 struct SidebarView: View {
     let model: AppModel

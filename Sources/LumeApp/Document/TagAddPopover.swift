@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 /// Content of the editor header's "+ add tag" popover. A focused text field
 /// prefix-filters existing tags (with their file counts) and offers a

@@ -1,23 +1,34 @@
 import SwiftUI
-import LumeCore
 
 /// A token field for tags: existing tags render as removable colored chips, and
 /// an inline text input commits a new tag on Return or comma. Binds to a
 /// `[String]` of names; `colorIndex` resolves each name's color live so recolors
 /// elsewhere reflect here. Pure UI — persistence is the caller's job (on change).
-struct TagField: View {
+public struct TagField: View {
     @Binding var names: [String]
     /// name → palette index (look up against a reactive @Query in the parent).
     let colorIndex: (String) -> Int
     var placeholder = "add tag"
     /// When non-nil, each chip's color dot becomes an inline recolor control;
     /// receives (tagName, newColorIndex). Nil = chips are not recolorable here.
-    var recolor: ((String, Int) -> Void)? = nil
+    var recolor: ((String, Int) -> Void)?
 
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    var body: some View {
+    public init(
+        names: Binding<[String]>,
+        colorIndex: @escaping (String) -> Int,
+        placeholder: String = "add tag",
+        recolor: ((String, Int) -> Void)? = nil
+    ) {
+        self._names = names
+        self.colorIndex = colorIndex
+        self.placeholder = placeholder
+        self.recolor = recolor
+    }
+
+    public var body: some View {
         FlowLayout(spacing: 6) {
             ForEach(names, id: \.self) { name in
                 TagChip(name: name,
@@ -58,10 +69,14 @@ struct TagField: View {
 
 /// Minimal wrapping layout (a left-to-right flow that wraps to a new row when it
 /// runs out of width). Used to lay out tag chips + the input.
-struct FlowLayout: Layout {
+public struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public init(spacing: CGFloat = 6) {
+        self.spacing = spacing
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
         var x: CGFloat = 0
         var y: CGFloat = 0
@@ -82,7 +97,7 @@ struct FlowLayout: Layout {
         return CGSize(width: width, height: y + rowHeight)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX
         var y = bounds.minY
         var rowHeight: CGFloat = 0

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 struct MultiTagSheet: View {
     let model: AppModel

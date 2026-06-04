@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "DocumentKit", targets: ["DocumentKit"]),
         .library(name: "ConfigKit", targets: ["ConfigKit"]),
         .library(name: "SelectionKit", targets: ["SelectionKit"]),
+        .library(name: "LumeUI", targets: ["LumeUI"]),
         .library(name: "LumeCore", targets: ["LumeCore"]),
         .executable(name: "LumeApp", targets: ["LumeApp"]),
     ],
@@ -21,6 +22,9 @@ let package = Package(
         .target(name: "ConfigKit", path: "Frameworks/ConfigKit"),
         .target(name: "SelectionKit", path: "Frameworks/SelectionKit"),
 
+        // Reusable SwiftUI components (TagChip, TagField, FlowLayout).
+        .target(name: "LumeUI", dependencies: ["LibraryKit"], path: "Frameworks/LumeUI"),
+
         // Umbrella facade re-exporting the kits for existing `import LumeCore` call sites.
         .target(
             name: "LumeCore",
@@ -30,7 +34,7 @@ let package = Package(
 
         .executableTarget(
             name: "LumeApp",
-            dependencies: ["LumeCore"],
+            dependencies: ["LumeCore", "LumeUI"],
             path: "Sources/LumeApp",
             resources: [.copy("Resources/web"), .copy("Resources/Lume.icns")]
         ),

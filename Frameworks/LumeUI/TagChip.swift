@@ -1,9 +1,9 @@
 import SwiftUI
-import LumeCore
+import LibraryKit
 
 /// Bridge a stored `Tag.colorIndex` to a SwiftUI `Color` via the shared palette.
 /// This is the ONLY place index → Color happens in the app.
-func tagColor(_ index: Int) -> Color {
+public func tagColor(_ index: Int) -> Color {
     let s = TagPalette.swatch(at: index)
     return Color(red: s.red, green: s.green, blue: s.blue)
 }
@@ -11,15 +11,27 @@ func tagColor(_ index: Int) -> Color {
 /// A compact colored pill for a single tag. When `onRemove` is non-nil an ✕
 /// button appears (editable contexts). When `onRecolor` is non-nil the color dot
 /// becomes a button that opens a swatch popover for inline recolor.
-struct TagChip: View {
+public struct TagChip: View {
     let name: String
     let colorIndex: Int
-    var onRemove: (() -> Void)? = nil
-    var onRecolor: ((Int) -> Void)? = nil
+    var onRemove: (() -> Void)?
+    var onRecolor: ((Int) -> Void)?
 
     @State private var pickingColor = false
 
-    var body: some View {
+    public init(
+        name: String,
+        colorIndex: Int,
+        onRemove: (() -> Void)? = nil,
+        onRecolor: ((Int) -> Void)? = nil
+    ) {
+        self.name = name
+        self.colorIndex = colorIndex
+        self.onRemove = onRemove
+        self.onRecolor = onRecolor
+    }
+
+    public var body: some View {
         HStack(spacing: 4) {
             colorDot
             Text(name).font(.caption).lineLimit(1)
@@ -59,11 +71,16 @@ struct TagChip: View {
 
 /// A horizontal row of the 8 palette swatches. The current color is ringed.
 /// Reused by the chip recolor popover and (as a Menu) the sidebar context menu.
-struct TagSwatchPicker: View {
+public struct TagSwatchPicker: View {
     var current: Int
     let onPick: (Int) -> Void
 
-    var body: some View {
+    public init(current: Int, onPick: @escaping (Int) -> Void) {
+        self.current = current
+        self.onPick = onPick
+    }
+
+    public var body: some View {
         HStack(spacing: 6) {
             ForEach(0..<TagPalette.count, id: \.self) { i in
                 Button { onPick(i) } label: {

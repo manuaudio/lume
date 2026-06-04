@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 /// Lazily lists the children of `parent`, honoring files-only + tag filter.
 struct FileTreeView: View {

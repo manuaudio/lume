@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 /// The Manage Tags panel (Pillar ③). Curate the tag *vocabulary*: recolor,
 /// inline-rename, multi-select, and Merge / Rename / Color / Delete from a

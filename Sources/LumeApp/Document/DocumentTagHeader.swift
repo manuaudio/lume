@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 /// Pillar ①: the collapsible tag header at the top of the document pane. Shared
 /// across all file types (markdown, code, env, pdf, html, quicklook). Renders the
