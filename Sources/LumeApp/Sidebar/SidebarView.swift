@@ -43,6 +43,58 @@ struct SidebarView: View {
         model.showPinnedHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
     }
 
+    /// Flat top-to-bottom order of every visible row id, matching what the List
+    /// actually renders (pinned region, then expanded pinned children, then the
+    /// browser tree). Feeds the keyboard range math in `AppModel`.
+    private var orderedRowIDs: [String] {
+        var ids: [String] = []
+
+        func walk(_ url: URL, isDir: Bool, section: SidebarSection, includeHidden: Bool) {
+            ids.append(SidebarRow(url: url, isDirectory: isDir, section: section).id)
+            guard isDir, model.expandedPaths.contains(url.path) else { return }
+            for child in visibleChildren(of: url, section: section, includeHidden: includeHidden) {
+                walk(child.url, isDir: child.isDirectory, section: section, includeHidden: includeHidden)
+            }
+        }
+
+        for fav in visibleFavorites {
+            walk(URL(fileURLWithPath: fav.path), isDir: fav.kindRaw == "folder",
+                 section: .pinned, includeHidden: false)
+        }
+        if let root = model.browseRoot {
+            for child in visibleChildren(of: root, section: .browser,
+                                         includeHidden: model.showBrowserHidden) {
+                walk(child.url, isDir: child.isDirectory, section: .browser,
+                     includeHidden: model.showBrowserHidden)
+            }
+        }
+        return ids
+    }
+
+    /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
+    /// the keyboard order matches the rendered order exactly.
+    /// ⚠️ CROSS-PHASE DRIFT: duplicates `FileTreeView.visibleChildren`
+    /// (FileTreeView.swift:66-83), INCLUDING the `activeTagFilter` branch. Phase C
+    /// replaces `activeTagFilter` (single) with set-based filters and rewrites
+    /// `FileTreeView.visibleChildren`; it MUST update BOTH copies in lockstep or
+    /// the keyboard order silently diverges from the rendered order.
+    private func visibleChildren(of parent: URL, section: SidebarSection,
+                                 includeHidden: Bool) -> [FileNode] {
+        var nodes = model.children(of: parent, includeHidden: includeHidden)
+        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
+        if section == .pinned, !model.showPinnedHidden {
+            nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
+        }
+        if let tag = model.activeTagFilter {
+            let allowed = model.store?.paths(taggedWith: tag) ?? []
+            nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
+        }
+        if !model.browseFilter.isEmpty {
+            nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
+        }
+        return nodes
+    }
+
     var body: some View {
         List(selection: selection) {
             pinnedSection
@@ -60,6 +112,8 @@ struct SidebarView: View {
                                                set: { model.editingTagsForSelection = $0 }))
         }
         .onChange(of: model.selectedRowIDs) { _, _ in model.openIfSingleFileSelected() }
+        .onChange(of: orderedRowIDs) { _, new in model.orderedVisibleRowIDs = new }
+        .onAppear { model.orderedVisibleRowIDs = orderedRowIDs }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
         // notes editors. Each returns `.handled` only when it acts.
@@ -82,6 +136,36 @@ struct SidebarView: View {
                   let row = SidebarRow.decode(id), row.isDirectory,
                   model.expandedPaths.contains(row.url.path) else { return .ignored }
             model.expandedPaths.remove(row.url.path)
+            return .handled
+        }
+        .onKeyPress(keys: [.upArrow], phases: .down) { press in
+            if press.modifiers.contains(.shift) {
+                model.extendSelection(by: -1)
+            } else if press.modifiers.isEmpty {
+                model.moveSelection(by: -1)
+            } else {
+                return .ignored
+            }
+            return .handled
+        }
+        .onKeyPress(keys: [.downArrow], phases: .down) { press in
+            if press.modifiers.contains(.shift) {
+                model.extendSelection(by: 1)
+            } else if press.modifiers.isEmpty {
+                model.moveSelection(by: 1)
+            } else {
+                return .ignored
+            }
+            return .handled
+        }
+        .onKeyPress(.return) {
+            guard model.soleSelectedRowID != nil else { return .ignored }
+            model.activateSelectedRow()
+            return .handled
+        }
+        .onKeyPress(keys: ["a"], phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            model.selectAllVisibleRows()
             return .handled
         }
         .onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in

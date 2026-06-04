@@ -43,6 +43,16 @@ final class AppModel {
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
     var selectedRowIDs: Set<String> = []
+    /// The row id the most recent contiguous (⇧) keyboard extension is anchored
+    /// to, and the row id that currently has keyboard focus within that range.
+    /// Reset whenever a plain move/selection replaces the selection.
+    @ObservationIgnored var selectionAnchorID: String?
+    @ObservationIgnored var selectionFocusID: String?
+
+    /// Flat, top-to-bottom order of the currently-visible sidebar row ids.
+    /// Published by `SidebarView` each render so keyboard range math (which has
+    /// no view tree) can resolve neighbors. Not observed (read on key events).
+    @ObservationIgnored var orderedVisibleRowIDs: [String] = []
     /// True only while ⌃ (Control) is held — drives the transient path bar.
     var pathPeek = false
     /// Drives the multi-selection "Edit Tags…" sheet (see MultiTagSheet).
@@ -326,10 +336,51 @@ final class AppModel {
     /// Open a file in the document view only when exactly one file row is
     /// selected, so extending a multi-selection doesn't thrash the document view.
     func openIfSingleFileSelected() {
+        if let id = soleSelectedRowID {
+            // A fresh single selection becomes the new anchor for ⇧-extends.
+            selectionAnchorID = id
+            selectionFocusID = id
+        }
         guard let id = soleSelectedRowID,
               let row = SidebarRow.decode(id), !row.isDirectory else { return }
         selectedFile = row.url
     }
+
+    /// ⌘A — select every visible row.
+    func selectAllVisibleRows() {
+        selectedRowIDs = RowSelection.all(in: orderedVisibleRowIDs)
+        selectionAnchorID = orderedVisibleRowIDs.first
+        selectionFocusID = orderedVisibleRowIDs.last
+    }
+
+    /// ↑ / ↓ (no modifier) — move the single selection one row in the flat
+    /// visible order, replacing it (Finder plain-arrow). Re-anchors so a later
+    /// ⇧-extend starts fresh from the moved-to row. Wired explicitly because
+    /// native arrow traversal across this multi-section, recursively-rendered
+    /// List is unreliable.
+    func moveSelection(by step: Int) {
+        let current = soleSelectedRowID ?? selectionFocusID ?? selectionAnchorID
+        guard let r = RowSelection.move(from: current, in: orderedVisibleRowIDs, by: step) else { return }
+        selectedRowIDs = r.selection
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.anchor
+    }
+
+    /// ⇧↑ / ⇧↓ — extend a contiguous selection from the anchor. Seeds the anchor
+    /// from the current sole selection on first use.
+    func extendSelection(by step: Int) {
+        if selectionAnchorID == nil { selectionAnchorID = soleSelectedRowID ?? orderedVisibleRowIDs.first }
+        if selectionFocusID == nil { selectionFocusID = selectionAnchorID }
+        guard let anchor = selectionAnchorID, let focus = selectionFocusID,
+              let r = RowSelection.extend(anchor: anchor, focus: focus,
+                                          in: orderedVisibleRowIDs, by: step) else { return }
+        selectedRowIDs = r.selection
+        selectionFocusID = r.focus
+    }
+
+    /// ⏎ — open the sole selected file, or drill into the sole selected folder.
+    /// Reuses the existing single-row open/drill behavior.
+    func activateSelectedRow() { openOrDrillSelected() }
 
     func renameSelected() { renamingPath = selectedRowURL?.path }
 
