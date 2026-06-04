@@ -42,15 +42,17 @@ Split the `LumeCore` grab-bag into focused, app-agnostic frameworks; thin `LumeA
 >
 > **`SidebarRow` id math** stays in `LumeApp/Sidebar` for now (couples to view identity); migrate to `SelectionKit` if it proves reusable. `EnvView` stays in `LumeApp` (couples to `AppModel`).
 
-## Phase 3 — Structured "vibecoder-friendly" config viewers (IN PROGRESS)
-Editable structured views like the `.env` editor, **toggleable** (structured ⇄ raw source), with an **extensible registry** so any applicable format gets one.
-- [x] `ConfigFormat` protocol + `ConfigRegistry`: parse → editable `ConfigValue` tree → serialize. Pluggable — a format becomes available app-wide by adding its type to `ConfigRegistry.formats`. (commits 6c97f33, + registry)
-- [x] **JSON** (Foundation-free, hand-rolled order-preserving parser + pretty-printer; `JSONSerialization` scrambles key order, so we don't use it). Numbers keep raw lexeme for exact round-trip.
+## Phase 3 — Structured "vibecoder-friendly" config viewers (DONE for v1)
+Editable structured views like the `.env` editor, **toggleable** (structured ⇄ raw source), with an **extensible registry** so any applicable format gets one. (commits 6c97f33, 8f7cd87, a54d364, + plist/yaml/toml/persist)
+- [x] `ConfigFormat` protocol + `ConfigRegistry`: parse → editable `ConfigValue` tree → serialize. Pluggable — a format becomes available app-wide by adding its type to `ConfigRegistry.formats`.
+- [x] **JSON** (Foundation-free, hand-rolled order-preserving parser + pretty-printer; `JSONSerialization` scrambles key order). Numbers keep raw lexeme for exact round-trip.
+- [x] **plist** (XML-plist via an event-driven `XMLParser` delegate that preserves dict key order; `PropertyListSerialization` reorders. Binary plists fall back to raw).
+- [x] **YAML** via Yams (order-preserving `Node` API) and **TOML** via TOMLKit/toml++. SPM deps added: Yams 5.4, TOMLKit 0.6.
 - [x] `ConfigEditorView` structured form (string/number fields, bool toggles, nested object/array disclosure) + **raw-source toggle** + invalid-source banner. Save-back through `model.write` (coordinated/iCloud-aware), debounced ~400ms like EnvView. Routed via `DocumentSurfaceView` for any registry-recognized file.
-- [ ] **plist** (Foundation; XML-plist needs an order-preserving parse — `PropertyListSerialization` reorders dict keys).
-- [ ] **YAML**, **TOML** — need a vetted lightweight dep each (e.g. Yams; TOMLKit/TOMLDecoder). **DEP CHOICE PENDING USER OK** before adding to Package.swift. Be honest about comment-preservation limits. Extend to `.xml`, `.ini`, `.csv` where a structured view helps.
-- [ ] Per-file (and global default) toggle persistence (current toggle is local `@State`, matching EnvView; persistence is a follow-up).
-- [ ] Structure editing (add/remove/rename keys, reorder, change type) — current editor edits leaf *values* only (the 80% case).
+- [x] **Toggle persistence:** `AppModel.configStructuredByDefault` (persisted global default) + per-file overrides (persisted). A vibecoder flips any config file structured⇄raw and it sticks.
+- [ ] **Remaining (v2):** structure editing (add/remove/rename keys, reorder, change type) — v1 edits leaf *values* only (the 80% case). Extend formats to `.xml`/`.ini`/`.csv`. Surgical raw edits to preserve comments on structured save.
+
+> **Honest limitations (documented):** Structured edits re-serialize, so **comments are not preserved** across a structured save in any format (the raw toggle keeps them). **TOML** additionally **re-sorts keys alphabetically** (toml++ exposes sorted keys); round-trips are stable but source key order isn't preserved. JSON/plist/YAML preserve key order.
 
 ## Phase 4 — Modernization & "world-class OS X" sweep
 Cross-cutting; apply throughout. Audit against `latest-apis.md`.
