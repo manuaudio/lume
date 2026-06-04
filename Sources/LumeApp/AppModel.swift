@@ -10,7 +10,11 @@ final class AppModel {
     var rootFolder: URL?
     var tree: [FileNode] = []
     var selectedFile: URL?
-    var activeTagFilter: String?
+    /// Active tag filter (multi-tag). Empty ⇒ no filtering. Membership is toggled
+    /// from the sidebar Tags section and the active-filter bar.
+    var activeTagFilters: Set<String> = []
+    /// true = All/AND (intersection), false = Any/OR (union). Defaults to All.
+    var tagFilterMatchAll: Bool = true
 
     // Browser
     var browseRoot: URL? {
@@ -174,6 +178,33 @@ final class AppModel {
         browseRoot = url
         expandedPaths.removeAll()
         browseFilter = ""
+    }
+
+    // MARK: - Tag filtering
+
+    /// True when any tag filter is active.
+    var hasTagFilter: Bool { !activeTagFilters.isEmpty }
+
+    /// Toggle a tag's membership in the active filter set.
+    func toggleTagFilter(_ name: String) {
+        if activeTagFilters.contains(name) { activeTagFilters.remove(name) }
+        else { activeTagFilters.insert(name) }
+    }
+
+    /// Remove a tag from the active filter set (active-filter bar ✕).
+    func removeTagFilter(_ name: String) { activeTagFilters.remove(name) }
+
+    /// Clear all active tag filters.
+    func clearTagFilters() { activeTagFilters.removeAll() }
+
+    /// The set of paths allowed by the current filter, or nil when no filter is
+    /// active (nil ⇒ "show everything", so callers skip filtering). Uses the
+    /// store's tested set helpers — All ⇒ intersection, Any ⇒ union.
+    var tagFilteredPaths: Set<String>? {
+        guard hasTagFilter, let store else { return nil }
+        return tagFilterMatchAll
+            ? store.paths(taggedWithAll: activeTagFilters)
+            : store.paths(taggedWithAny: activeTagFilters)
     }
 
     // MARK: - Multi-selection commands

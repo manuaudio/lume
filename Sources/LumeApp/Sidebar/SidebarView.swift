@@ -16,6 +16,9 @@ struct SidebarView: View {
     /// Drives the tag rename sheet (non-nil while renaming a specific tag).
     @State private var renamingTag: TagRef?
 
+    /// Drives the Manage Tags panel.
+    @State private var showingTagManager = false
+
     /// path → custom display name (non-empty only), kept reactive via @Query.
     private var names: [String: String] {
         Dictionary(uniqueKeysWithValues:
@@ -84,15 +87,25 @@ struct SidebarView: View {
     /// recursive disk walk re-run — selection is deliberately absent. Keep this in
     /// lockstep with the inputs read by `computeOrderedRowIDs` / `visibleChildren`:
     /// expanded set, browse root, the visible-favorites list (favorites order +
-    /// pinned-hidden reveal + hidden paths), files-only, the active tag filter,
-    /// the browse text filter, and the browser-hidden reveal.
+    /// pinned-hidden reveal + hidden paths), files-only, the active tag filter
+    /// state (`activeTagFilters` + `tagFilterMatchAll`) AND the resulting filtered
+    /// path set, the browse text filter, and the browser-hidden reveal.
+    ///
+    /// We fold `tagFilteredPaths` itself (not just `activeTagFilters`) so the flat
+    /// order also re-walks when a file's tag MEMBERSHIP changes UNDER an active
+    /// filter (e.g. you tag/untag a file elsewhere): the filter set is unchanged
+    /// but the allowed paths shift, so the visible rows shift too. `nil` (no
+    /// filter) collapses to an empty set here so toggling the last filter off
+    /// still trips the signature.
     private var rowOrderSignature: RowOrderSignature {
         RowOrderSignature(
             expanded: model.expandedPaths,
             browseRoot: model.browseRoot?.path,
             favoritePaths: visibleFavorites.map(\.path),
             filesOnly: model.filesOnly,
-            activeTagFilter: model.activeTagFilter,
+            activeTagFilters: model.activeTagFilters,
+            tagFilterMatchAll: model.tagFilterMatchAll,
+            tagFilteredPaths: model.tagFilteredPaths ?? [],
             browseFilter: model.browseFilter,
             showBrowserHidden: model.showBrowserHidden,
             showPinnedHidden: model.showPinnedHidden,
@@ -103,10 +116,9 @@ struct SidebarView: View {
     /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
     /// the keyboard order matches the rendered order exactly.
     /// ⚠️ CROSS-PHASE DRIFT: duplicates `FileTreeView.visibleChildren`
-    /// (FileTreeView.swift:66-83), INCLUDING the `activeTagFilter` branch. Phase C
-    /// replaces `activeTagFilter` (single) with set-based filters and rewrites
-    /// `FileTreeView.visibleChildren`; it MUST update BOTH copies in lockstep or
-    /// the keyboard order silently diverges from the rendered order.
+    /// (FileTreeView.swift). Both copies read the SAME set-based tag filter
+    /// (`model.tagFilteredPaths`, Phase C) so the keyboard-nav flat order can never
+    /// diverge from the rendered tree. Keep them in lockstep on any future change.
     private func visibleChildren(of parent: URL, section: SidebarSection,
                                  includeHidden: Bool) -> [FileNode] {
         var nodes = model.children(of: parent, includeHidden: includeHidden)
@@ -114,8 +126,10 @@ struct SidebarView: View {
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
         }
-        if let tag = model.activeTagFilter {
-            let allowed = model.store?.paths(taggedWith: tag) ?? []
+        if let allowed = model.tagFilteredPaths {
+            // Shared filter source of truth with FileTreeView.visibleChildren:
+            // keep the keyboard-nav flat order (orderedRowIDs) identical to the
+            // rendered tree. All ⇒ intersection, Any ⇒ union; directories kept.
             nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
@@ -131,7 +145,12 @@ struct SidebarView: View {
             browserSection
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .top) { topBar }
+        .safeAreaInset(edge: .top) {
+            VStack(spacing: 0) {
+                topBar
+                if model.hasTagFilter { activeFilterBar }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if model.selectedRowIDs.count >= 2 {
                 SidebarActionBar(model: model, hiddenPaths: hiddenPaths)
@@ -242,6 +261,41 @@ struct SidebarView: View {
         .background(.bar)
     }
 
+    /// Active tag-filter bar: removable chips + All/Any toggle + match count +
+    /// Clear. Only rendered when `model.hasTagFilter`.
+    private var activeFilterBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Picker("", selection: Binding(get: { model.tagFilterMatchAll },
+                                              set: { model.tagFilterMatchAll = $0 })) {
+                    Text("All").tag(true)
+                    Text("Any").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .fixedSize()
+                .help("All = match every tag (AND); Any = match any tag (OR)")
+                Spacer(minLength: 0)
+                Text("\(model.tagFilteredPaths?.count ?? 0) match\(model.tagFilteredPaths?.count == 1 ? "" : "es")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Clear") { model.clearTagFilters() }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+            }
+            FlowLayout(spacing: 4) {
+                ForEach(Array(model.activeTagFilters).sorted(), id: \.self) { name in
+                    TagChip(name: name,
+                            colorIndex: model.store?.colorIndex(forTagNamed: name) ?? 0,
+                            onRemove: { model.removeTagFilter(name) })
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
     private var filterField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -318,9 +372,9 @@ struct SidebarView: View {
     // MARK: Tags (clickable filters)
 
     @ViewBuilder private var tagsSection: some View {
-        Section("Tags") {
+        Section {
             ForEach(tags) { tag in
-                let active = model.activeTagFilter == tag.name
+                let active = model.activeTagFilters.contains(tag.name)
                 HStack(spacing: 6) {
                     Image(systemName: active ? "tag.fill" : "tag")
                         .foregroundStyle(tagColor(tag.colorIndex))
@@ -330,7 +384,7 @@ struct SidebarView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    model.activeTagFilter = active ? nil : tag.name
+                    model.toggleTagFilter(tag.name)
                 }
                 .contextMenu {
                     Button("Rename…", systemImage: "pencil") {
@@ -345,18 +399,30 @@ struct SidebarView: View {
                     }
                     Divider()
                     Button("Delete Tag", systemImage: "trash", role: .destructive) {
-                        if model.activeTagFilter == tag.name {
-                            model.activeTagFilter = nil
-                        }
+                        model.removeTagFilter(tag.name)
                         model.store?.deleteTag(named: tag.name)
                     }
                 }
+            }
+        } header: {
+            HStack {
+                Text("TAGS")
+                Spacer()
+                Button { showingTagManager = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("Manage tags (rename, recolor, merge, delete)")
             }
         }
         .sheet(item: $renamingTag) { ref in
             TagRenameSheet(model: model, oldName: ref.name) {
                 renamingTag = nil
             }
+        }
+        .sheet(isPresented: $showingTagManager) {
+            TagManagerSheet(model: model, isPresented: $showingTagManager)
         }
     }
 
@@ -418,7 +484,9 @@ private struct RowOrderSignature: Equatable {
     let browseRoot: String?
     let favoritePaths: [String]
     let filesOnly: Bool
-    let activeTagFilter: String?
+    let activeTagFilters: Set<String>
+    let tagFilterMatchAll: Bool
+    let tagFilteredPaths: Set<String>
     let browseFilter: String
     let showBrowserHidden: Bool
     let showPinnedHidden: Bool

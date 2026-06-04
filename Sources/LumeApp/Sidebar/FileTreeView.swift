@@ -71,9 +71,11 @@ struct FileTreeView: View {
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
         }
-        if let tag = model.activeTagFilter {
-            let allowed = model.store?.paths(taggedWith: tag) ?? []
-            // Keep directories (so you can navigate into them) + tagged files.
+        if let allowed = model.tagFilteredPaths {
+            // Set-based filter: `allowed` is the intersection (All) or union (Any)
+            // of the active tags' paths. Keep directories (so you can navigate
+            // into them) + files in the allowed set. Covers BOTH regions since
+            // filtering lives here.
             nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
