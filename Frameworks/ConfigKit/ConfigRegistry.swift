@@ -6,6 +6,7 @@ public enum ConfigRegistry {
     /// All registered formats, in priority order.
     public static let formats: [any ConfigFormat.Type] = [
         JSONConfigFormat.self,
+        PlistConfigFormat.self,
     ]
 
     /// The format claiming `ext` (case-insensitive), or nil.
