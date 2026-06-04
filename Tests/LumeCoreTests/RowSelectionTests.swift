@@ -1,5 +1,5 @@
 import Testing
-@testable import LumeCore
+@testable import SelectionKit
 
 @Suite struct RowSelectionTests {
     let order = ["a", "b", "c", "d", "e"]

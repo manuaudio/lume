@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import LumeCore
+@testable import DocumentKit
 
 @Test func pathExportEmptyInputIsEmptyString() {
     #expect(PathExport.clipboardString(for: []) == "")

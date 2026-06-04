@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import LumeCore
+@testable import FileSystemKit
 
 private func makeTempDir() throws -> URL {
     let dir = FileManager.default.temporaryDirectory

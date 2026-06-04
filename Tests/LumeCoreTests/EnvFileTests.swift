@@ -1,5 +1,5 @@
 import Testing
-@testable import LumeCore
+@testable import ConfigKit
 
 @Test func parsesEntriesCommentsAndBlanks() {
     let text = """

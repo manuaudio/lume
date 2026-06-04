@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 struct SidebarView: View {
     let model: AppModel
@@ -9,7 +10,6 @@ struct SidebarView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Favorite.sortIndex) private var favorites: [Favorite]
     @Query(sort: \Tag.name) private var tags: [Tag]
-    @Query private var allMeta: [FileMeta]
 
     @FocusState private var filterFocused: Bool
 
@@ -19,20 +19,8 @@ struct SidebarView: View {
     /// Drives the Manage Tags panel.
     @State private var showingTagManager = false
 
-    /// path → custom display name (non-empty only), kept reactive via @Query.
-    private var names: [String: String] {
-        Dictionary(uniqueKeysWithValues:
-            allMeta.filter { !$0.displayName.isEmpty }.map { ($0.path, $0.displayName) })
-    }
-
     private var selection: Binding<Set<String>> {
         Binding(get: { model.selectedRowIDs }, set: { model.selectedRowIDs = $0 })
-    }
-
-    /// Paths flagged hidden, derived reactively from @Query so toggling Hide
-    /// updates both regions immediately (same pattern as `names`).
-    private var hiddenPaths: Set<String> {
-        Set(allMeta.filter { $0.hidden }.map { $0.path })
     }
 
     private var filter: Binding<String> {
@@ -43,7 +31,7 @@ struct SidebarView: View {
     /// toggle (`showPinnedHidden`). Shared by the `ForEach` and `.onMove` so
     /// reorder indices stay correct.
     private var visibleFavorites: [Favorite] {
-        model.showPinnedHidden ? favorites : favorites.filter { !hiddenPaths.contains($0.path) }
+        model.showPinnedHidden ? favorites : favorites.filter { !model.hiddenPaths.contains($0.path) }
     }
 
     /// Flat top-to-bottom order of every visible row id, matching what the List
@@ -114,7 +102,7 @@ struct SidebarView: View {
             browseFilter: model.browseFilter,
             showBrowserHidden: model.showBrowserHidden,
             showPinnedHidden: model.showPinnedHidden,
-            hiddenPaths: hiddenPaths
+            hiddenPaths: model.hiddenPaths
         )
     }
 
@@ -130,7 +118,7 @@ struct SidebarView: View {
         var nodes = model.children(of: parent, includeHidden: includeHidden)
         if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
         if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
+            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
         }
         if let allowed = tagFilteredPaths {
             // Shared filter source of truth with FileTreeView.visibleChildren:
@@ -160,6 +148,11 @@ struct SidebarView: View {
             browserSection(tagFilteredPaths: tagFilteredPaths)
         }
         .listStyle(.sidebar)
+        // Mount the expensive all-metadata @Query ONCE, isolated in a leaf view
+        // whose body is Color.clear. It updates the model's meta index; it never
+        // re-renders the tree. Removing the @Query from SidebarView is what kills
+        // the invalidation storm.
+        .background(MetaIndexLoader(model: model))
         .safeAreaInset(edge: .top) {
             VStack(spacing: 0) {
                 topBar
@@ -170,7 +163,7 @@ struct SidebarView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if model.selectedRowIDs.count >= 2 {
-                SidebarActionBar(model: model, hiddenPaths: hiddenPaths)
+                SidebarActionBar(model: model, hiddenPaths: model.hiddenPaths)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -363,15 +356,16 @@ struct SidebarView: View {
                     SidebarItemRow(url: url,
                                    isDirectory: isDir,
                                    section: .pinned, depth: 0,
-                                   model: model, names: names,
-                                   hiddenPaths: hiddenPaths)
+                                   model: model,
+                                   displayName: model.displayNames[url.path],
+                                   isHidden: model.hiddenPaths.contains(url.path))
                         .tag(SidebarRow(url: url, isDirectory: isDir,
                                         section: .pinned).id)
                     // Inline expansion: a favorited folder reveals its children
                     // in place (the curation surface), mirroring the browser tree.
                     if isDir, model.expandedPaths.contains(url.path) {
-                        FileTreeView(parent: url, model: model, names: names,
-                                     hiddenPaths: hiddenPaths, section: .pinned, depth: 1,
+                        FileTreeView(parent: url, model: model,
+                                     section: .pinned, depth: 1,
                                      tagFilteredPaths: tagFilteredPaths)
                     }
                 }
@@ -455,8 +449,8 @@ struct SidebarView: View {
         Section {
             pathPeekBar
             if let root = model.browseRoot {
-                FileTreeView(parent: root, model: model, names: names,
-                             hiddenPaths: hiddenPaths, section: .browser, depth: 0,
+                FileTreeView(parent: root, model: model,
+                             section: .browser, depth: 0,
                              tagFilteredPaths: tagFilteredPaths)
                     .opacity(model.pathPeek ? 0.4 : 1)
             }
@@ -494,6 +488,35 @@ struct SidebarView: View {
             .padding(.vertical, 4)
             .background(.bar)
         }
+    }
+}
+
+// MARK: - MetaIndexLoader
+
+/// A LEAF view that owns the expensive all-metadata `@Query` and does nothing
+/// but feed it into the model's stable meta index. Its body is `Color.clear`, so
+/// when `allMeta` changes (a tag edit, hide, rename, the debounced notes
+/// autosave) only THIS view re-evaluates — never the sidebar tree. The model's
+/// `displayNames`/`hiddenPaths` then update, and only the rows whose own scalar
+/// changed re-render. Mounted once via `.background` on the List.
+struct MetaIndexLoader: View {
+    let model: AppModel
+    @Query private var allMeta: [FileMeta]
+
+    var body: some View {
+        Color.clear
+            .onAppear { push() }
+            .onChange(of: allMeta) { _, _ in push() }
+    }
+
+    private func push() {
+        var names: [String: String] = [:]
+        var hidden: Set<String> = []
+        for m in allMeta {
+            if !m.displayName.isEmpty { names[m.path] = m.displayName }
+            if m.hidden { hidden.insert(m.path) }
+        }
+        model.updateMetaIndex(displayNames: names, hiddenPaths: hidden)
     }
 }
 

@@ -2,13 +2,12 @@ import AppKit
 import SwiftUI
 import SwiftData
 import LumeCore
+import LumeUI
 
 /// Lazily lists the children of `parent`, honoring files-only + tag filter.
 struct FileTreeView: View {
     let parent: URL
     let model: AppModel
-    var names: [String: String] = [:]
-    let hiddenPaths: Set<String>
     let section: SidebarSection
     var depth: Int = 0
     /// The set of paths allowed by the active tag filter, or nil when no filter
@@ -23,13 +22,11 @@ struct FileTreeView: View {
 
     @State private var children: [FileNode]
 
-    init(parent: URL, model: AppModel, names: [String: String] = [:],
-         hiddenPaths: Set<String>, section: SidebarSection, depth: Int = 0,
+    init(parent: URL, model: AppModel,
+         section: SidebarSection, depth: Int = 0,
          tagFilteredPaths: Set<String>?) {
         self.parent = parent
         self.model = model
-        self.names = names
-        self.hiddenPaths = hiddenPaths
         self.section = section
         self.depth = depth
         self.tagFilteredPaths = tagFilteredPaths
@@ -51,16 +48,21 @@ struct FileTreeView: View {
 
     var body: some View {
         ForEach(visibleChildren) { node in
+            // Per-row SCALARS, not the whole dicts. Reading model.displayNames /
+            // model.hiddenPaths here re-renders this (cheap) ForEach on a meta
+            // change, but each leaf row receives an unchanged scalar and SwiftUI
+            // skips it — only the edited row's scalar changes, so only it renders.
             SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
                            section: section, depth: depth,
-                           model: model, names: names,
-                           hiddenPaths: hiddenPaths)
+                           model: model,
+                           displayName: model.displayNames[node.url.path],
+                           isHidden: model.hiddenPaths.contains(node.url.path))
                 .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
                                 section: section).id)
 
             if node.isDirectory, model.expandedPaths.contains(node.url.path) {
-                FileTreeView(parent: node.url, model: model, names: names,
-                             hiddenPaths: hiddenPaths, section: section, depth: depth + 1,
+                FileTreeView(parent: node.url, model: model,
+                             section: section, depth: depth + 1,
                              tagFilteredPaths: tagFilteredPaths)
             }
         }
@@ -73,6 +75,11 @@ struct FileTreeView: View {
         // affects the `visibleChildren` filter, which re-evaluates reactively
         // via @Observable tracking — no new filesystem enumeration required.
         .onChange(of: model.showBrowserHidden) { _, _ in reload() }
+        // FSEvents (Finder/other-app edits) bump the cache revision; re-read so
+        // external create/rename/delete refresh the tree. The cache returns the
+        // freshly-invalidated directory's contents (a single disk read), not the
+        // whole tree.
+        .onChange(of: model.fileSystemRevision) { _, _ in reload() }
     }
 
     private var visibleChildren: [FileNode] {
@@ -81,7 +88,7 @@ struct FileTreeView: View {
         // Curation filter: only the FAVORITES region hides items by FileMeta.hidden,
         // and only when the pinned reveal toggle is off. The browser shows reality.
         if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !hiddenPaths.contains($0.url.path) }
+            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
         }
         if let allowed = tagFilteredPaths {
             // Set-based filter: `allowed` is the intersection (All) or union (Any)
@@ -112,12 +119,14 @@ struct SidebarItemRow: View {
     let section: SidebarSection
     var depth: Int = 0
     let model: AppModel
-    var names: [String: String] = [:]
-    var hiddenPaths: Set<String> = []
+    /// This row's own display-name override (FileMeta.displayName), or nil. A
+    /// SCALAR so SwiftUI re-renders this row only when ITS name changes.
+    var displayName: String? = nil
+    /// Whether this row's path is hidden. Scalar, same isolation rationale.
+    var isHidden: Bool = false
 
     private var isExpanded: Bool { model.expandedPaths.contains(url.path) }
     private var isRenaming: Bool { model.renamingPath == url.path }
-    private var isHidden: Bool { hiddenPaths.contains(url.path) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -127,6 +136,7 @@ struct SidebarItemRow: View {
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(width: 12)
                         .onTapGesture { model.toggleExpanded(url) }
+                        .accessibilityHidden(true)   // expand/collapse exposed as a row action below
                 } else {
                     Spacer().frame(width: 12)
                 }
@@ -135,14 +145,14 @@ struct SidebarItemRow: View {
                     RenameField(url: url, model: model,
                                 autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 } else if isDirectory {
-                    Label(names[url.path] ?? url.lastPathComponent,
+                    Label(displayName ?? url.lastPathComponent,
                           systemImage: section == .pinned ? "folder.fill" : "folder")
                         .foregroundStyle(section == .pinned ? .yellow : .primary)
                         .lineLimit(1)
                 } else {
                     FileRow(url: url,
                             kind: FileKind.detect(filename: url.lastPathComponent),
-                            name: names[url.path],
+                            name: displayName,
                             autoName: section == .pinned ? DisplayName.autoName(for: url) : nil)
                 }
                 Spacer(minLength: 0)
@@ -153,6 +163,14 @@ struct SidebarItemRow: View {
                 }
             }
             .opacity(section == .pinned && isHidden ? 0.45 : 1)
+            // Scope the row's combined a11y element to the file/folder line only,
+            // so the inline RowMetaView tag editor (when selected) stays operable.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
+            .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
+                if isDirectory { model.toggleExpanded(url) }
+            }
             if !isDirectory, model.selectedFile == url, !isRenaming {
                 RowMetaView(url: url, model: model)
             }
@@ -187,9 +205,17 @@ struct SidebarItemRow: View {
                     isDirectory: isDirectory,
                     section: section,
                     rowID: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
-                    hiddenPaths: hiddenPaths,
+                    hiddenPaths: model.hiddenPaths,
                     model: model)
         }
+    }
+
+    /// A spoken description: name, then folder/file, then any pinned/hidden state.
+    private var accessibilityLabel: String {
+        var parts = [displayName ?? url.lastPathComponent, isDirectory ? "folder" : "file"]
+        if section == .pinned { parts.append("pinned") }
+        if isHidden { parts.append("hidden") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -231,6 +257,7 @@ struct FileRow: View {
         case .markdown: return "doc.text"
         case .env: return "key.fill"
         case .pdf: return "doc.richtext"
+        case .image: return "photo"
         case .previewable: return "doc"
         case .html: return "globe"
         case .code: return "chevron.left.forwardslash.chevron.right"
@@ -243,6 +270,7 @@ struct FileRow: View {
         case .markdown: return .blue
         case .env: return .orange
         case .pdf: return .red
+        case .image: return .green
         case .html: return .teal
         case .code: return .purple
         case .previewable, .unsupported: return .secondary

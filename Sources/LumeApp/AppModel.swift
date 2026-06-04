@@ -34,6 +34,7 @@ final class AppModel {
                 if safe != r { browseRoot = safe; return }
             }
             persistBrowseRoot()
+            restartWatcher()
         }
     }
     var filesOnly = false { didSet { UserDefaults.standard.set(filesOnly, forKey: "lume.filesOnly") } }
@@ -47,7 +48,49 @@ final class AppModel {
     /// above the routed viewer. Persisted globally and remembered across launches
     /// (default true). Toggled by the 🏷 toolbar button and the header's ⌃ collapse.
     var showEditorTags = true { didSet { UserDefaults.standard.set(showEditorTags, forKey: "lume.showEditorTags") } }
+
+    /// Phase 3: the "vibecoder" structured config editor. A global default
+    /// (persisted) plus per-file overrides (persisted), so any config file can be
+    /// flipped between the structured form and raw source and remembered.
+    var configStructuredByDefault = true {
+        didSet { UserDefaults.standard.set(configStructuredByDefault, forKey: "lume.configStructuredDefault") }
+    }
+    private var configViewOverrides: [String: Bool] = [:] {
+        didSet { UserDefaults.standard.set(configViewOverrides, forKey: "lume.configViewOverrides") }
+    }
+
+    /// Whether the structured editor (vs raw source) should show for `path`.
+    func configShowsStructured(forPath path: String) -> Bool {
+        configViewOverrides[path] ?? configStructuredByDefault
+    }
+
+    /// Remember a per-file structured/raw choice.
+    func setConfigShowsStructured(_ structured: Bool, forPath path: String) {
+        configViewOverrides[path] = structured
+    }
+
     var expandedPaths: Set<String> = []
+
+    /// path → custom display name (non-empty only). Stable @Observable state,
+    /// updated ONCE by `MetaIndexLoader` from the all-metadata @Query — never
+    /// rebuilt per render. Rows look up their own scalar (`displayName(forPath:)`)
+    /// so editing one file re-renders only that row, not the whole tree.
+    var displayNames: [String: String] = [:]
+    /// Paths flagged hidden. Same isolation rationale as `displayNames`.
+    var hiddenPaths: Set<String> = []
+
+    /// Per-row scalar lookups. Rows depend on these (not the whole dict), so
+    /// SwiftUI skips re-rendering rows whose scalar is unchanged.
+    func displayName(forPath path: String) -> String? { displayNames[path] }
+    func isHidden(_ path: String) -> Bool { hiddenPaths.contains(path) }
+
+    /// Replace the metadata index. Called by the isolated `MetaIndexLoader` leaf
+    /// view on appear and whenever the all-metadata @Query changes — the only
+    /// place the expensive full-table fetch touches the model.
+    func updateMetaIndex(displayNames: [String: String], hiddenPaths: Set<String>) {
+        if self.displayNames != displayNames { self.displayNames = displayNames }
+        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths }
+    }
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
     var selectedRowIDs: Set<String> = []
@@ -80,6 +123,20 @@ final class AppModel {
 
     @ObservationIgnored let files: FileServicing = FileService()
 
+    /// Caches directory enumeration so re-rendering the tree never hits the disk.
+    /// `@ObservationIgnored` on the reference itself (the model doesn't change
+    /// identity); views observe the cache's `revision` via `fileSystemRevision`.
+    @ObservationIgnored private let cache = FileSystemCache()
+
+    /// The single live filesystem watcher on `browseRoot`. Replaced (old one
+    /// stopped) whenever the browse root changes; see `restartWatcher()`.
+    @ObservationIgnored private var watcher: DirectoryWatcher?
+
+    /// External-change ticker: the cache's `revision`, exposed so the sidebar
+    /// tree can `.onChange` on it and re-read invalidated directories after a
+    /// Finder/other-app edit.
+    var fileSystemRevision: Int { cache.revision }
+
     init() {
         filesOnly = UserDefaults.standard.bool(forKey: "lume.filesOnly")
         showPinnedHidden = UserDefaults.standard.bool(forKey: "lume.showPinnedHidden")
@@ -89,6 +146,14 @@ final class AppModel {
         if UserDefaults.standard.object(forKey: "lume.showEditorTags") != nil {
             showEditorTags = UserDefaults.standard.bool(forKey: "lume.showEditorTags")
         }
+        if UserDefaults.standard.object(forKey: "lume.configStructuredDefault") != nil {
+            configStructuredByDefault = UserDefaults.standard.bool(forKey: "lume.configStructuredDefault")
+        }
+        configViewOverrides = (UserDefaults.standard.dictionary(forKey: "lume.configViewOverrides") as? [String: Bool]) ?? [:]
+        // Re-establish access to the last explicitly-opened folder (security-scoped
+        // bookmark) before restoring the browse root, so a sandboxed relaunch can
+        // still read it. No-op / bonus when unsandboxed.
+        _ = SecurityScopedAccess.resolve(key: "lume.rootBookmark")
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {
@@ -103,6 +168,12 @@ final class AppModel {
     // MARK: Folder navigation
 
     func openFolder(_ url: URL) {
+        // Persist access to this user-granted folder so it (and its subtree)
+        // remains reachable on the next launch under the App Sandbox. Harmless
+        // when unsandboxed. The grant transitively covers children, so this is
+        // the access anchor for Browse mode too.
+        SecurityScopedAccess.store(url, key: "lume.rootBookmark")
+        SecurityScopedAccess.beginAccess(url)
         rootFolder = url
         selectedFile = nil
         reloadTree()
@@ -117,11 +188,25 @@ final class AppModel {
     }
 
     func children(of node: FileNode, includeHidden: Bool = false) -> [FileNode] {
-        (try? files.enumerate(node.url, includeHidden: includeHidden)) ?? []
+        cache.children(of: node.url, includeHidden: includeHidden)
     }
 
     func children(of url: URL, includeHidden: Bool = false) -> [FileNode] {
-        (try? files.enumerate(url, includeHidden: includeHidden)) ?? []
+        cache.children(of: url, includeHidden: includeHidden)
+    }
+
+    /// (Re)start the filesystem watcher on the current `browseRoot`. Stops any
+    /// previous watcher first so only one stream is ever live. FSEvents change
+    /// events invalidate the affected directories in the cache (bumping its
+    /// `revision`), which the sidebar observes via `fileSystemRevision`.
+    private func restartWatcher() {
+        watcher?.stop()
+        watcher = nil
+        guard let root = browseRoot else { return }
+        watcher = DirectoryWatcher(root: root) { [weak self] changed in
+            guard let self else { return }
+            for path in changed { self.cache.invalidate(path: path) }
+        }
     }
 
     // MARK: Favorites

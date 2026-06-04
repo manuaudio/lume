@@ -1,5 +1,5 @@
 import Testing
-@testable import LumeCore
+@testable import LibraryKit
 
 /// Wrapped in an explicit `@Suite struct` so `swift test --filter TagSuggestTests`
 /// matches the SUITE by name. Free `@Test` functions only expose their own symbol

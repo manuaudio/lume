@@ -59,10 +59,6 @@ struct LumeApp: App {
         }
     }()
 
-    private func post(_ name: Notification.Name) {
-        NotificationCenter.default.post(name: name, object: nil)
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -72,42 +68,6 @@ struct LumeApp: App {
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 1180, height: 760)
-        .commands {
-            // ⌘O — always available to open a folder in Browse.
-            CommandGroup(after: .newItem) {
-                Button("Open Folder…") {
-                    post(.lumeOpenFolder)
-                }
-                .keyboardShortcut("o", modifiers: .command)
-            }
-            CommandMenu("Navigate") {
-                Button("Open / Drill In") {
-                    post(.lumeOpenOrDrill)
-                }
-                .keyboardShortcut(.downArrow, modifiers: .command)
-
-                Button("Go Up") {
-                    post(.lumeDrillUp)
-                }
-                .keyboardShortcut(.upArrow, modifiers: .command)
-
-                Button("Find in Sidebar") {
-                    post(.lumeFocusFilter)
-                }
-                .keyboardShortcut("f", modifiers: .command)
-
-                Divider()
-
-                Button("Rename") {
-                    post(.lumeRename)
-                }
-                .keyboardShortcut("r", modifiers: .command)
-
-                Button("Pin / Unpin") {
-                    post(.lumePin)
-                }
-                .keyboardShortcut("d", modifiers: .command)
-            }
-        }
+        .commands { LumeCommands() }
     }
 }
