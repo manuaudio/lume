@@ -7,6 +7,13 @@ import Testing
         #expect(format?.identifier == "json")
     }
 
+    @Test func resolvesAllRegisteredFormats() {
+        #expect(ConfigRegistry.format(forExtension: "plist")?.identifier == "plist")
+        #expect(ConfigRegistry.format(forExtension: "yaml")?.identifier == "yaml")
+        #expect(ConfigRegistry.format(forExtension: "yml")?.identifier == "yaml")
+        #expect(ConfigRegistry.format(forExtension: "toml")?.identifier == "toml")
+    }
+
     @Test func returnsNilForUnknownExtension() {
         #expect(ConfigRegistry.format(forExtension: "rtf") == nil)
     }

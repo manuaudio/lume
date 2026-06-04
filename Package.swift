@@ -14,12 +14,23 @@ let package = Package(
         .library(name: "LumeCore", targets: ["LumeCore"]),
         .executable(name: "LumeApp", targets: ["LumeApp"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/jpsim/Yams.git", from: "5.1.0"),
+        .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
+    ],
     targets: [
         // Focused, app-agnostic frameworks.
         .target(name: "FileSystemKit", path: "Frameworks/FileSystemKit"),
         .target(name: "LibraryKit", dependencies: ["FileSystemKit"], path: "Frameworks/LibraryKit"),
         .target(name: "DocumentKit", dependencies: ["FileSystemKit"], path: "Frameworks/DocumentKit"),
-        .target(name: "ConfigKit", path: "Frameworks/ConfigKit"),
+        .target(
+            name: "ConfigKit",
+            dependencies: [
+                .product(name: "Yams", package: "Yams"),
+                .product(name: "TOMLKit", package: "TOMLKit"),
+            ],
+            path: "Frameworks/ConfigKit"
+        ),
         .target(name: "SelectionKit", path: "Frameworks/SelectionKit"),
 
         // Reusable SwiftUI components (TagChip, TagField, FlowLayout).
