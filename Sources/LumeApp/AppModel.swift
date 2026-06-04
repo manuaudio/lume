@@ -150,6 +150,10 @@ final class AppModel {
             configStructuredByDefault = UserDefaults.standard.bool(forKey: "lume.configStructuredDefault")
         }
         configViewOverrides = (UserDefaults.standard.dictionary(forKey: "lume.configViewOverrides") as? [String: Bool]) ?? [:]
+        // Re-establish access to the last explicitly-opened folder (security-scoped
+        // bookmark) before restoring the browse root, so a sandboxed relaunch can
+        // still read it. No-op / bonus when unsandboxed.
+        _ = SecurityScopedAccess.resolve(key: "lume.rootBookmark")
         if let p = UserDefaults.standard.string(forKey: "lume.browseRoot") {
             browseRoot = URL(fileURLWithPath: p)
         } else {
@@ -164,6 +168,12 @@ final class AppModel {
     // MARK: Folder navigation
 
     func openFolder(_ url: URL) {
+        // Persist access to this user-granted folder so it (and its subtree)
+        // remains reachable on the next launch under the App Sandbox. Harmless
+        // when unsandboxed. The grant transitively covers children, so this is
+        // the access anchor for Browse mode too.
+        SecurityScopedAccess.store(url, key: "lume.rootBookmark")
+        SecurityScopedAccess.beginAccess(url)
         rootFolder = url
         selectedFile = nil
         reloadTree()

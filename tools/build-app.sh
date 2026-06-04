@@ -1,9 +1,18 @@
 #!/bin/bash
 # Builds a double-clickable Lume.app bundle (release) with the custom icon.
-#   ./tools/build-app.sh
+#   ./tools/build-app.sh             # normal (unsandboxed) build
+#   ./tools/build-app.sh --sandbox   # sign with App Sandbox entitlements (opt-in)
 # Produces dist/Lume.app and installs a copy to /Applications (falls back to
 # ~/Applications if /Applications isn't writable).
 set -euo pipefail
+
+SANDBOX=0
+for arg in "$@"; do
+  case "$arg" in
+    --sandbox) SANDBOX=1 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 cd "$(dirname "$0")/.."
@@ -45,8 +54,21 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Ad-hoc sign so it launches cleanly as a locally built app.
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+# Ad-hoc sign so it launches cleanly as a locally built app. With --sandbox,
+# sign WITH the App Sandbox entitlements (ad-hoc signing + entitlements is enough
+# to activate the sandbox for a locally-run app).
+#
+# NOTE: a sandboxed Lume can only read folders the user grants via the open panel
+# (no browse-from-home), and its SwiftData store lives in the per-app container
+# (~/Library/Containers/com.lume.app/…), so existing tags/favorites/notes from the
+# unsandboxed build won't be visible. This is why sandboxing is opt-in, not default.
+if [ "${SANDBOX:-0}" = "1" ]; then
+  echo "▸ Signing WITH App Sandbox entitlements…"
+  codesign --force --deep --sign - --entitlements "$ROOT/tools/Lume.entitlements" "$APP" >/dev/null 2>&1 \
+    || { echo "✗ Sandboxed signing failed"; exit 1; }
+else
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+fi
 
 echo "✓ Built $APP"
 
