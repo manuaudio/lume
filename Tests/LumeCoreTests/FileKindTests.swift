@@ -18,7 +18,16 @@ import Testing
 
 @Test func detectsPreviewable() {
     #expect(FileKind.detect(filename: "invoice.docx") == .previewable)
-    #expect(FileKind.detect(filename: "photo.PNG") == .previewable)
+    #expect(FileKind.detect(filename: "deck.pptx") == .previewable)
+}
+
+@Test func detectsImage() {
+    // Images route to the native ImageViewer, NOT QuickLook (which aborts on
+    // a pre-window previewItem assignment).
+    #expect(FileKind.detect(filename: "photo.PNG") == .image)
+    #expect(FileKind.detect(filename: "shot.jpeg") == .image)
+    #expect(FileKind.detect(filename: "anim.gif") == .image)
+    #expect(FileKind.detect(filename: "scan.HEIC") == .image)
 }
 
 @Test func detectsHtml() {

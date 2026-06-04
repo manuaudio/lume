@@ -231,6 +231,7 @@ struct FileRow: View {
         case .markdown: return "doc.text"
         case .env: return "key.fill"
         case .pdf: return "doc.richtext"
+        case .image: return "photo"
         case .previewable: return "doc"
         case .html: return "globe"
         case .code: return "chevron.left.forwardslash.chevron.right"
@@ -243,6 +244,7 @@ struct FileRow: View {
         case .markdown: return .blue
         case .env: return .orange
         case .pdf: return .red
+        case .image: return .green
         case .html: return .teal
         case .code: return .purple
         case .previewable, .unsupported: return .secondary

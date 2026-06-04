@@ -38,4 +38,12 @@ enum ICloudCoordinator {
             DispatchQueue.main.async { MainActor.assumeIsolated(completion) }
         }
     }
+
+    /// async/await convenience over the completion API. Suspends until the item
+    /// is local (or immediately if it already is / isn't an iCloud file).
+    static func ensureDownloaded(_ url: URL) async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            ensureDownloaded(url) { cont.resume() }
+        }
+    }
 }

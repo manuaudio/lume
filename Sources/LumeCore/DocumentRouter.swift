@@ -4,13 +4,14 @@ public enum DocumentViewer: Equatable, Sendable {
     case envEditor        // native masked key=value (editable)
     case codeViewer       // CodeMirror read-only highlight
     case pdf              // PDFKit
-    case quickLook        // QLPreviewView (docx/office/images/unsupported)
+    case image            // native, layer-backed NSImageView (GPU-composited)
+    case quickLook        // QLPreviewView (docx/office/unsupported long-tail)
     case html             // plain WKWebView
 
     public var isEditable: Bool {
         switch self {
         case .markdownEditor, .envEditor: return true
-        case .codeViewer, .pdf, .quickLook, .html: return false
+        case .codeViewer, .pdf, .image, .quickLook, .html: return false
         }
     }
 }
@@ -22,6 +23,7 @@ public enum DocumentRouter {
         case .env: return .envEditor
         case .code: return .codeViewer
         case .pdf: return .pdf
+        case .image: return .image
         case .previewable: return .quickLook
         case .html: return .html
         case .unsupported: return .quickLook

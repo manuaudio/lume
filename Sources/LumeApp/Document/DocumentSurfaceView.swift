@@ -36,6 +36,8 @@ struct DocumentSurfaceView: View {
             EnvView(fileURL: url, model: model)
         case .pdf:
             PDFViewer(fileURL: url)
+        case .image:
+            ImageViewer(fileURL: url)
         case .quickLook:
             QuickLookViewer(fileURL: url)
         case .html:
