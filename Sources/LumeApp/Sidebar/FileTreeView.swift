@@ -136,6 +136,7 @@ struct SidebarItemRow: View {
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(width: 12)
                         .onTapGesture { model.toggleExpanded(url) }
+                        .accessibilityHidden(true)   // expand/collapse exposed as a row action below
                 } else {
                     Spacer().frame(width: 12)
                 }
@@ -162,6 +163,14 @@ struct SidebarItemRow: View {
                 }
             }
             .opacity(section == .pinned && isHidden ? 0.45 : 1)
+            // Scope the row's combined a11y element to the file/folder line only,
+            // so the inline RowMetaView tag editor (when selected) stays operable.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
+            .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
+                if isDirectory { model.toggleExpanded(url) }
+            }
             if !isDirectory, model.selectedFile == url, !isRenaming {
                 RowMetaView(url: url, model: model)
             }
@@ -199,6 +208,14 @@ struct SidebarItemRow: View {
                     hiddenPaths: model.hiddenPaths,
                     model: model)
         }
+    }
+
+    /// A spoken description: name, then folder/file, then any pinned/hidden state.
+    private var accessibilityLabel: String {
+        var parts = [displayName ?? url.lastPathComponent, isDirectory ? "folder" : "file"]
+        if section == .pinned { parts.append("pinned") }
+        if isHidden { parts.append("hidden") }
+        return parts.joined(separator: ", ")
     }
 }
 

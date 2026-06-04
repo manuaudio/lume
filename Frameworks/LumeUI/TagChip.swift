@@ -43,6 +43,7 @@ public struct TagChip: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help("Remove tag")
+                .accessibilityLabel("Remove tag \(name)")
             }
         }
         .padding(.horizontal, 7)
@@ -57,6 +58,7 @@ public struct TagChip: View {
             Button { pickingColor = true } label: { dot }
                 .buttonStyle(.plain)
                 .help("Change color")
+                .accessibilityLabel("Change color of tag \(name)")
                 .popover(isPresented: $pickingColor, arrowEdge: .bottom) {
                     TagSwatchPicker(current: colorIndex) { idx in
                         onRecolor(idx)
@@ -95,6 +97,7 @@ public struct TagSwatchPicker: View {
                 }
                 .buttonStyle(.plain)
                 .help(TagPalette.swatch(at: i).name)
+                .accessibilityLabel("Color \(TagPalette.swatch(at: i).name)")
             }
         }
         .padding(8)

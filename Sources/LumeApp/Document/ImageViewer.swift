@@ -79,6 +79,7 @@ struct ImageViewer: NSViewRepresentable {
             guard let image else { return }
             coordinator.imageView?.image = image
             coordinator.imageView?.frame.size = image.size
+            coordinator.imageView?.setAccessibilityLabel("Image, \(url.lastPathComponent)")
         }
     }
 
