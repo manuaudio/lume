@@ -32,6 +32,10 @@ struct ImageViewer: NSViewRepresentable {
         let imageView = NSImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
+        // Baseline VoiceOver identity, set before decode so loading/failed states
+        // are still announced (the decode path refines the label on success).
+        imageView.setAccessibilityRole(.image)
+        imageView.setAccessibilityLabel("Image, \(fileURL.lastPathComponent)")
         imageView.wantsLayer = true                 // layer-backed = GPU-composited
         imageView.layer?.contentsGravity = .resizeAspect
         imageView.translatesAutoresizingMaskIntoConstraints = true

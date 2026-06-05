@@ -165,6 +165,7 @@ struct SidebarItemRow: View {
                     Button { model.unhide(url) } label: { Image(systemName: "eye") }
                         .buttonStyle(.borderless)
                         .help("Un-hide")
+                        .accessibilityLabel("Un-hide \(displayName ?? url.lastPathComponent)")
                 }
             }
             .opacity(section == .pinned && isHidden ? 0.45 : 1)
@@ -178,6 +179,9 @@ struct SidebarItemRow: View {
             // element and leave mouse selection intact.
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
+            .accessibilityAddTraits(
+                model.selectedRowIDs.contains(SidebarRow(url: url, isDirectory: isDirectory, section: section).id)
+                ? .isSelected : [])
             .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
                 if isDirectory { model.toggleExpanded(url) }
             }

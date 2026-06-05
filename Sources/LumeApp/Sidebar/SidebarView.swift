@@ -8,6 +8,7 @@ struct SidebarView: View {
     let model: AppModel
 
     @Environment(\.modelContext) private var context
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Favorite.sortIndex) private var favorites: [Favorite]
     @Query(sort: \Tag.name) private var tags: [Tag]
 
@@ -167,7 +168,7 @@ struct SidebarView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: model.selectedRowIDs.count >= 2)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: model.selectedRowIDs.count >= 2)
         .background(ModifierMonitor(pathPeek: Binding(get: { model.pathPeek },
                                                       set: { model.pathPeek = $0 })))
         .sheet(isPresented: Binding(get: { model.editingTagsForSelection },
@@ -290,6 +291,7 @@ struct SidebarView: View {
                 .controlSize(.small)
                 .fixedSize()
                 .help("All = match every tag (AND); Any = match any tag (OR)")
+                .accessibilityLabel("Tag filter match mode")
                 Spacer(minLength: 0)
                 Text("\(matchCount) match\(matchCount == 1 ? "" : "es")")
                     .font(.caption)
@@ -392,17 +394,26 @@ struct SidebarView: View {
         Section {
             ForEach(tags) { tag in
                 let active = model.activeTagFilters.contains(tag.name)
-                HStack(spacing: 6) {
-                    Image(systemName: active ? "tag.fill" : "tag")
-                        .foregroundStyle(tagColor(tag.colorIndex))
-                    Text(tag.name)
-                        .foregroundStyle(active ? Color.primary : .secondary)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
+                // A real Button (not a tap-gesture HStack) so the tag filter is
+                // keyboard-operable and VoiceOver reads it as a button with on/off
+                // state — filtering is a core action and was previously mouse-only.
+                Button {
                     model.toggleTagFilter(tag.name)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: active ? "tag.fill" : "tag")
+                            .foregroundStyle(tagColor(tag.colorIndex))
+                        Text(tag.name)
+                            .foregroundStyle(active ? Color.primary : .secondary)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(active ? "Filtering by “\(tag.name)” — click to remove"
+                             : "Filter by “\(tag.name)”")
+                .accessibilityAddTraits(active ? .isSelected : [])
+                .accessibilityValue(active ? "filtering" : "not filtering")
                 .contextMenu {
                     Button("Rename…", systemImage: "pencil") {
                         renamingTag = TagRef(name: tag.name)
@@ -431,6 +442,7 @@ struct SidebarView: View {
                 .buttonStyle(.borderless)
                 .controlSize(.small)
                 .help("Manage tags (rename, recolor, merge, delete)")
+                .accessibilityLabel("Manage tags")
             }
         }
         .sheet(item: $renamingTag) { ref in
@@ -559,6 +571,7 @@ struct SectionHeader: View {
             .buttonStyle(.borderless)
             .controlSize(.small)
             .help(help)
+            .accessibilityLabel(isOn ? "Hide hidden items" : "Show hidden items")
         }
     }
 }
