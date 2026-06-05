@@ -484,8 +484,9 @@ final class AppModel {
     }
 
     /// True when at least one selected row is a REAL file/folder (decodable via
-    /// `SidebarRow`). Group header/file rows decode to nil here, so an all-group
-    /// selection is false — used to suppress Pin/Hide, which would no-op on it.
+    /// `SidebarRow`). Group *file* rows decode to their real URL (so Pin/Hide stay
+    /// available for them), but group *header* rows decode to nil — so an
+    /// all-header selection is false, suppressing Pin/Hide that would no-op on it.
     var selectionHasRealItems: Bool {
         selectedRowIDs.contains { SidebarRow.decode($0) != nil }
     }
