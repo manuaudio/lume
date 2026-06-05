@@ -108,21 +108,16 @@ struct SidebarView: View {
             hiddenPaths: model.hiddenPaths)
     }
 
-    /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
-    /// the keyboard order matches the rendered order exactly.
-    /// ⚠️ CROSS-PHASE DRIFT: duplicates `FileTreeView.visibleChildren`
-    /// (FileTreeView.swift). Keep them in lockstep on any future change.
+    /// Enumerate + filter a directory's visible children, using the SAME shared
+    /// filter as the rendered tree so the keyboard order matches exactly.
     private func visibleChildren(of parent: URL, section: SidebarSection,
                                  includeHidden: Bool) -> [FileNode] {
-        var nodes = model.children(of: parent, includeHidden: includeHidden)
-        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
-        if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if !model.browseFilter.isEmpty {
-            nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
-        }
-        return nodes
+        VisibleChildrenFilter.apply(model.children(of: parent, includeHidden: includeHidden),
+                                    filesOnly: model.filesOnly,
+                                    isPinned: section == .pinned,
+                                    showPinnedHidden: model.showPinnedHidden,
+                                    hiddenPaths: model.hiddenPaths,
+                                    browseFilter: model.browseFilter)
     }
 
     var body: some View {

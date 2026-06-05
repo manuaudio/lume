@@ -94,17 +94,12 @@ struct FileTreeView: View {
     }
 
     private var visibleChildren: [FileNode] {
-        var nodes = children
-        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
-        // Curation filter: only the FAVORITES region hides items by FileMeta.hidden,
-        // and only when the pinned reveal toggle is off. The browser shows reality.
-        if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if !model.browseFilter.isEmpty {
-            nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
-        }
-        return nodes
+        VisibleChildrenFilter.apply(children,
+                                    filesOnly: model.filesOnly,
+                                    isPinned: section == .pinned,
+                                    showPinnedHidden: model.showPinnedHidden,
+                                    hiddenPaths: model.hiddenPaths,
+                                    browseFilter: model.browseFilter)
     }
 
     private func reload() {
