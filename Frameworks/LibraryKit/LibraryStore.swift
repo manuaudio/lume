@@ -222,6 +222,18 @@ public final class LibraryStore {
         try? context.save()
     }
 
+    /// Create a brand-new, EMPTY tag (a GROUP with no files yet). Trims the name,
+    /// ignores blanks, and is idempotent by name (reuses an existing tag). New
+    /// tags get the next cycling palette color, like any tag created via `setMeta`.
+    /// Empty tags persist — they are NOT auto-pruned (see the GROUPS design: a
+    /// user-created group with zero files is valid).
+    public func createEmptyTag(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, existingTag(named: name) == nil else { return }
+        context.insert(Tag(name: name, colorIndex: nextColorIndex()))
+        try? context.save()
+    }
+
     /// Delete a tag outright: detach it from every file it tags, then remove it.
     public func deleteTag(named name: String) {
         guard let t = existingTag(named: name) else { return }
