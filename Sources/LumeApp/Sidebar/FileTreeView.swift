@@ -4,6 +4,31 @@ import SwiftData
 import LumeCore
 import LumeUI
 
+/// One file-tree element: the row, plus — only when it's an expanded folder —
+/// its recursive subtree, presented as a SINGLE child view so the parent
+/// ForEach keeps a constant view count per element.
+private struct FileNodeView: View {
+    let node: FileNode
+    let model: AppModel
+    let section: SidebarSection
+    let depth: Int
+
+    var body: some View {
+        SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
+                       section: section, depth: depth,
+                       model: model,
+                       displayName: model.displayNames[node.url.path],
+                       isHidden: model.hiddenPaths.contains(node.url.path))
+            .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
+                            section: section).id)
+
+        if node.isDirectory, model.expandedPaths.contains(node.url.path) {
+            FileTreeView(parent: node.url, model: model,
+                         section: section, depth: depth + 1)
+        }
+    }
+}
+
 /// Lazily lists the children of `parent`, honoring files-only.
 struct FileTreeView: View {
     let parent: URL
@@ -36,23 +61,16 @@ struct FileTreeView: View {
     }
 
     var body: some View {
+        // Per-row SCALARS, not the whole dicts. Reading model.displayNames /
+        // model.hiddenPaths inside FileNodeView re-renders this (cheap) ForEach on
+        // a meta change, but each leaf row receives an unchanged scalar and SwiftUI
+        // skips it — only the edited row's scalar changes, so only it renders.
+        // Each node maps to exactly ONE child view (FileNodeView), so the outer
+        // ForEach keeps a CONSTANT view count per element: expanding a folder grows
+        // FileNodeView's body, not the sibling list, so SwiftUI doesn't re-diff the
+        // whole row collection (Apple's constant-view-count rule).
         ForEach(visibleChildren) { node in
-            // Per-row SCALARS, not the whole dicts. Reading model.displayNames /
-            // model.hiddenPaths here re-renders this (cheap) ForEach on a meta
-            // change, but each leaf row receives an unchanged scalar and SwiftUI
-            // skips it — only the edited row's scalar changes, so only it renders.
-            SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
-                           section: section, depth: depth,
-                           model: model,
-                           displayName: model.displayNames[node.url.path],
-                           isHidden: model.hiddenPaths.contains(node.url.path))
-                .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
-                                section: section).id)
-
-            if node.isDirectory, model.expandedPaths.contains(node.url.path) {
-                FileTreeView(parent: node.url, model: model,
-                             section: section, depth: depth + 1)
-            }
+            FileNodeView(node: node, model: model, section: section, depth: depth)
         }
         .onAppear { reload() }
         .onChange(of: parent) { _, _ in reload() }
@@ -76,17 +94,12 @@ struct FileTreeView: View {
     }
 
     private var visibleChildren: [FileNode] {
-        var nodes = children
-        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
-        // Curation filter: only the FAVORITES region hides items by FileMeta.hidden,
-        // and only when the pinned reveal toggle is off. The browser shows reality.
-        if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if !model.browseFilter.isEmpty {
-            nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
-        }
-        return nodes
+        VisibleChildrenFilter.apply(children,
+                                    filesOnly: model.filesOnly,
+                                    isPinned: section == .pinned,
+                                    showPinnedHidden: model.showPinnedHidden,
+                                    hiddenPaths: model.hiddenPaths,
+                                    browseFilter: model.browseFilter)
     }
 
     private func reload() {
@@ -154,10 +167,11 @@ struct SidebarItemRow: View {
             // NOTE: do NOT wrap this in `.accessibilityElement(children: .combine)`.
             // Inside `List(selection:)` that synthesizes a combined a11y element
             // over the row content which HIJACKS single-click hit-testing — it
-            // silently broke click-to-select/open (double-click still worked
-            // because it goes through the explicit .onTapGesture below). These
-            // label/hint/action modifiers annotate the row's native selectable
-            // element and leave mouse selection intact.
+            // silently breaks click-to-select (single-click selection is now
+            // owned natively by `List(selection:)`, and double-click drill/open
+            // still routes through the remaining `.onTapGesture(count: 2)` below).
+            // These label/hint/action modifiers annotate the row's native
+            // selectable element and leave mouse selection intact.
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
             .accessibilityAddTraits(
@@ -194,17 +208,6 @@ struct SidebarItemRow: View {
                 model.selectedRowIDs = [SidebarRow(url: url, isDirectory: false, section: section).id]
                 model.selectedFile = url
             }
-        }
-        // Single click = select + activate (folder → expand inline; file → show
-        // content), honoring ⌘/⇧ for multi-select. Native List(selection:) wasn't
-        // delivering single clicks to these rows, so this restores the behavior
-        // explicitly. Registered AFTER the count:2 gesture so SwiftUI can
-        // disambiguate a double-click (drill) from a single click.
-        .onTapGesture {
-            model.clickRow(id: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
-                           isDirectory: isDirectory, url: url,
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
         }
         .contextMenu {
             RowMenu(url: url,

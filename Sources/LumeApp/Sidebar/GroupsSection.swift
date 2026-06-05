@@ -20,12 +20,7 @@ struct GroupsSection: View {
     var body: some View {
         Section {
             ForEach(tags) { tag in
-                groupHeaderRow(tag)
-                if model.expandedGroups.contains(tag.name) {
-                    ForEach(model.sortedGroupFilePaths(forTagNamed: tag.name), id: \.self) { path in
-                        groupFileRow(tagName: tag.name, path: path)
-                    }
-                }
+                GroupView(model: model, tag: tag, renamingTag: $renamingTag)
             }
             newGroupRow
         } header: {
@@ -50,6 +45,46 @@ struct GroupsSection: View {
             Button("Cancel", role: .cancel) { newGroupName = "" }
         } message: {
             Text("Create an empty group. Tag files (or drag them here) to add them.")
+        }
+    }
+
+    // MARK: + New Group
+
+    private var newGroupRow: some View {
+        Button {
+            newGroupName = ""
+            newGroupPromptShown = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .frame(width: 12)
+                Text("New Group")
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Create an empty group")
+        .accessibilityLabel("New Group")
+    }
+}
+
+/// One GROUPS element: always renders the header, and renders its file rows
+/// only when expanded — but always as a SINGLE child view from the parent
+/// ForEach's perspective, satisfying List's constant-view-count rule.
+private struct GroupView: View {
+    let model: AppModel
+    let tag: Tag
+    @Binding var renamingTag: TagRef?
+
+    var body: some View {
+        let name = tag.name
+        groupHeaderRow(tag)
+        if model.expandedGroups.contains(name) {
+            ForEach(model.sortedGroupFilePaths(forTagNamed: name), id: \.self) { path in
+                groupFileRow(tagName: name, path: path)
+            }
         }
     }
 
@@ -87,16 +122,6 @@ struct GroupsSection: View {
         }
         // Double-click a group → expand/collapse (no disk folder to drill into).
         .onTapGesture(count: 2) { model.toggleGroupExpanded(name) }
-        // Single-click → SELECT ONLY (honoring ⌘/⇧). A group header has no file to
-        // open: passing isDirectory:true routes through clickRow's directory branch
-        // (select-only, never sets selectedFile), so the bogus url below is never
-        // opened — it exists solely to satisfy the signature.
-        .onTapGesture {
-            model.clickRow(id: id, isDirectory: true,
-                           url: URL(fileURLWithPath: "/"),
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
-        }
         // Drag a file onto this group → tag it with this group's name.
         .dropDestination(for: URL.self) { urls, _ in
             model.tag(urls, withTagNamed: name)
@@ -156,14 +181,6 @@ struct GroupsSection: View {
             model.selectedRowIDs = [id]
             model.selectedFile = url
         }
-        // Single-click → select + open (honoring ⌘/⇧). clickRow decodes the
-        // groupfile id to this real file URL via SidebarRow.decode, and because
-        // isDirectory:false it sets selectedFile through the normal path.
-        .onTapGesture {
-            model.clickRow(id: id, isDirectory: false, url: url,
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
-        }
         .contextMenu {
             Button("Open", systemImage: "doc.text") {
                 model.selectedRowIDs = [id]
@@ -184,27 +201,6 @@ struct GroupsSection: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
-    }
-
-    // MARK: + New Group
-
-    private var newGroupRow: some View {
-        Button {
-            newGroupName = ""
-            newGroupPromptShown = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .frame(width: 12)
-                Text("New Group")
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .help("Create an empty group")
-        .accessibilityLabel("New Group")
     }
 
     // MARK: Icon (mirrors FileRow's kind tinting, monochrome here)

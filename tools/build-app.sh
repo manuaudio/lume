@@ -33,10 +33,23 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/LumeApp" "$APP/Contents/MacOS/LumeApp"
 cp "$ROOT/Sources/LumeApp/Resources/Lume.icns" "$APP/Contents/Resources/Lume.icns"
-# SPM resource bundle so Bundle.module (web assets, icon) resolves at runtime.
-if [ -d "$BIN_DIR/LumeApp_LumeApp.bundle" ]; then
-  cp -R "$BIN_DIR/LumeApp_LumeApp.bundle" "$APP/Contents/Resources/"
+# SPM resource bundle(s) so Bundle.module — which backs the app-icon load and the
+# bundled web editor — resolves at runtime. SPM names the bundle
+# <PackageName>_<TargetName>.bundle; the package is "Lume", so it's
+# `Lume_LumeApp.bundle`, NOT `LumeApp_LumeApp.bundle`. A missing bundle traps in
+# Bundle.module's initializer at launch (EXC_BREAKPOINT → immediate quit), so this
+# MUST hard-fail rather than silently skip (the old guarded `if` masked exactly
+# this bug). Copy every produced *.bundle to be robust to package/target renames.
+shopt -s nullglob
+spm_bundles=("$BIN_DIR"/*.bundle)
+shopt -u nullglob
+if [ ${#spm_bundles[@]} -eq 0 ]; then
+  echo "✗ No SPM resource bundle found in $BIN_DIR — Bundle.module would trap at launch." >&2
+  exit 1
 fi
+for b in "${spm_bundles[@]}"; do
+  cp -R "$b" "$APP/Contents/Resources/"
+done
 
 # Version: human string stays 1.0; build number is the git commit count so every
 # build is monotonically identifiable (falls back to 1 outside a git checkout).

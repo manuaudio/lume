@@ -35,30 +35,33 @@ struct SidebarView: View {
         model.showPinnedHidden ? favorites : favorites.filter { !model.hiddenPaths.contains($0.path) }
     }
 
-    /// Flat top-to-bottom order of every visible row id, matching what the List
-    /// actually renders (GROUPS region, then FAVORITES + expanded pinned children,
-    /// then the browser tree). Feeds the keyboard range math in `AppModel`.
-    ///
-    /// PERFORMANCE: this recursively walks the expanded tree via
-    /// `model.children(of:)` → an UNCACHED `FileManager` directory read per
-    /// expanded folder. It is therefore NOT a computed property observed by the
-    /// body (that recomputed the whole disk walk on every selection/arrow-key
-    /// render — a per-keystroke main-thread hang). Instead it is recomputed only
-    /// from the explicit `.onChange` triggers below, for the inputs that actually
-    /// change the visible STRUCTURE/order — never on `selectedRowIDs`.
-    private func computeOrderedRowIDs() -> [String] {
-        var ids: [String] = []
+    // The flat top-to-bottom order of every visible row id (GROUPS region, then
+    // FAVORITES + expanded pinned children, then the browser tree) feeds the
+    // keyboard range math in `AppModel`. It is assembled as two slices —
+    // `groupRowIDs()` (cheap, cache-only) + `computeTreeRowIDs()` (the disk
+    // walk) — so a GROUPS toggle never pays for the tree walk.
 
-        // GROUPS region first (matches the rendered order: GROUPS, FAVORITES,
-        // OPEN FOLDER). A group header row, then — when expanded — one file row
-        // per tagged file in sorted order.
-        for tag in tags {
-            ids.append(GroupRowID.headerID(tagName: tag.name))
-            guard model.expandedGroups.contains(tag.name) else { continue }
-            for path in model.sortedGroupFilePaths(forTagNamed: tag.name) {
-                ids.append(GroupRowID.fileID(tagName: tag.name, path: path))
-            }
-        }
+    /// Cheap, cache-only GROUPS slice (no disk access).
+    private func groupRowIDs() -> [String] {
+        GroupRowOrder.ids(tagNames: tags.map(\.name),
+                          expandedGroups: model.expandedGroups,
+                          groupFilePaths: model.groupFilePaths)
+    }
+
+    /// The combined visible order = GROUPS slice + cached tree slice. Single
+    /// source of the assembly so the cache-coherence invariant lives in one place.
+    private func recombineVisibleOrder() {
+        model.orderedVisibleRowIDs = groupRowIDs() + model.treeRowIDs
+    }
+
+    /// Expensive favorites + browser slice: recursively walks the expanded tree
+    /// via `model.children(of:)` → an UNCACHED `FileManager` directory read per
+    /// expanded folder. NOT observed by the body (that recomputed the whole disk
+    /// walk on every selection/arrow-key render — a per-keystroke main-thread
+    /// hang); recomputed only from the explicit `.onChange(of: treeOrderSignature)`
+    /// trigger below, never on `selectedRowIDs` or a GROUP toggle.
+    private func computeTreeRowIDs() -> [String] {
+        var ids: [String] = []
 
         func walk(_ url: URL, isDir: Bool, section: SidebarSection, includeHidden: Bool) {
             ids.append(SidebarRow(url: url, isDirectory: isDir, section: section).id)
@@ -82,47 +85,39 @@ struct SidebarView: View {
         return ids
     }
 
-    /// Every input that can change the OUTPUT of `computeOrderedRowIDs`, folded
-    /// into one cheap Equatable value. When (and only when) this changes does the
-    /// recursive disk walk re-run — selection is deliberately absent. Keep this in
-    /// lockstep with the inputs read by `computeOrderedRowIDs` / `visibleChildren`:
-    /// expanded set, expanded GROUPS, the tag names, browse root, the
-    /// visible-favorites list (favorites order + pinned-hidden reveal + hidden
-    /// paths), files-only, the browse text filter, the browser-hidden reveal, the
-    /// display names (so a group's file order re-walks on a name change), and the
-    /// group membership cache (so adding/removing a file to/from a group re-walks).
-    private var rowOrderSignature: RowOrderSignature {
-        RowOrderSignature(
-            expanded: model.expandedPaths,
+    /// GROUPS-only order inputs (cheap). A change here recomputes only the
+    /// cache-backed GROUPS slice — no disk walk.
+    private var groupOrderSignature: GroupOrderSignature {
+        GroupOrderSignature(
             expandedGroups: model.expandedGroups,
             tagNames: tags.map(\.name),
+            metaVersion: model.metaVersion)
+    }
+
+    /// Favorites + browser order inputs (expensive). Only a change here re-runs
+    /// the recursive disk walk.
+    private var treeOrderSignature: TreeOrderSignature {
+        TreeOrderSignature(
+            expanded: model.expandedPaths,
             browseRoot: model.browseRoot?.path,
             favoritePaths: visibleFavorites.map(\.path),
             filesOnly: model.filesOnly,
             browseFilter: model.browseFilter,
             showBrowserHidden: model.showBrowserHidden,
             showPinnedHidden: model.showPinnedHidden,
-            hiddenPaths: model.hiddenPaths,
-            displayNames: model.displayNames,
-            groupFilePaths: model.groupFilePaths
-        )
+            hiddenPaths: model.hiddenPaths)
     }
 
-    /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
-    /// the keyboard order matches the rendered order exactly.
-    /// ⚠️ CROSS-PHASE DRIFT: duplicates `FileTreeView.visibleChildren`
-    /// (FileTreeView.swift). Keep them in lockstep on any future change.
+    /// Enumerate + filter a directory's visible children, using the SAME shared
+    /// filter as the rendered tree so the keyboard order matches exactly.
     private func visibleChildren(of parent: URL, section: SidebarSection,
                                  includeHidden: Bool) -> [FileNode] {
-        var nodes = model.children(of: parent, includeHidden: includeHidden)
-        if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
-        if section == .pinned, !model.showPinnedHidden {
-            nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if !model.browseFilter.isEmpty {
-            nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
-        }
-        return nodes
+        VisibleChildrenFilter.apply(model.children(of: parent, includeHidden: includeHidden),
+                                    filesOnly: model.filesOnly,
+                                    isPinned: section == .pinned,
+                                    showPinnedHidden: model.showPinnedHidden,
+                                    hiddenPaths: model.hiddenPaths,
+                                    browseFilter: model.browseFilter)
     }
 
     var body: some View {
@@ -166,15 +161,20 @@ struct SidebarView: View {
                                                set: { model.editingTagsForSelection = $0 }))
         }
         .onChange(of: model.selectedRowIDs) { _, _ in model.openIfSingleFileSelected() }
-        // Recompute the flat visible order ONLY when the inputs that change the
-        // rendered structure/order change — NOT on selection. `rowOrderSignature`
-        // folds every such input into one Equatable value, so a single onChange
-        // covers them all and the expensive disk walk runs only when needed.
-        .onChange(of: rowOrderSignature) { _, _ in
-            model.orderedVisibleRowIDs = computeOrderedRowIDs()
+        // GROUP toggles, tag membership, tag list changes → recompute the cheap
+        // cache-only GROUPS slice and recombine. No disk walk. Relies on `onAppear`
+        // below having seeded `treeRowIDs` first (`.onChange` doesn't fire on the
+        // initial mount, so `onAppear` always runs before any signal here).
+        .onChange(of: groupOrderSignature) { _, _ in recombineVisibleOrder() }
+        // Favorites/browser structure changes → re-run the recursive disk walk,
+        // cache it, recombine.
+        .onChange(of: treeOrderSignature) { _, _ in
+            model.treeRowIDs = computeTreeRowIDs()
+            recombineVisibleOrder()
         }
         .onAppear {
-            model.orderedVisibleRowIDs = computeOrderedRowIDs()
+            model.treeRowIDs = computeTreeRowIDs()
+            recombineVisibleOrder()
         }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
@@ -458,16 +458,16 @@ struct MetaIndexLoader: View {
     }
 }
 
-// MARK: - RowOrderSignature
+// MARK: - Order signatures
 
-/// A cheap, value-type fingerprint of every input that affects the flat visible
-/// row order. Equating two of these lets SwiftUI's `.onChange` re-drive the
-/// (expensive) ordered-row walk only when the structure/visibility actually
-/// changed — never on a mere selection change. See `SidebarView.rowOrderSignature`.
-private struct RowOrderSignature: Equatable {
-    let expanded: Set<String>
+private struct GroupOrderSignature: Equatable {
     let expandedGroups: Set<String>
     let tagNames: [String]
+    let metaVersion: Int
+}
+
+private struct TreeOrderSignature: Equatable {
+    let expanded: Set<String>
     let browseRoot: String?
     let favoritePaths: [String]
     let filesOnly: Bool
@@ -475,12 +475,6 @@ private struct RowOrderSignature: Equatable {
     let showBrowserHidden: Bool
     let showPinnedHidden: Bool
     let hiddenPaths: Set<String>
-    // Folded in so a group's file order re-walks when a display name changes
-    // (group rows sort by effective display name).
-    let displayNames: [String: String]
-    // Folded in so the group rows re-walk when membership changes (a file is
-    // tagged/untagged, or a group emptied) even if no display name changed.
-    let groupFilePaths: [String: [String]]
 }
 
 // MARK: - SectionHeader

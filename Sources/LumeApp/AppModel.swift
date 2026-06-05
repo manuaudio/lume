@@ -91,8 +91,8 @@ final class AppModel {
     /// view on appear and whenever the all-metadata @Query changes — the only
     /// place the expensive full-table fetch touches the model.
     func updateMetaIndex(displayNames: [String: String], hiddenPaths: Set<String>) {
-        if self.displayNames != displayNames { self.displayNames = displayNames }
-        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths }
+        if self.displayNames != displayNames { self.displayNames = displayNames; metaVersion &+= 1 }
+        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths; metaVersion &+= 1 }
     }
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
@@ -107,6 +107,10 @@ final class AppModel {
     /// Published by `SidebarView` each render so keyboard range math (which has
     /// no view tree) can resolve neighbors. Not observed (read on key events).
     @ObservationIgnored var orderedVisibleRowIDs: [String] = []
+    /// The favorites+browser portion of the flat visible order, cached so a
+    /// GROUPS toggle (cheap, cache-only) doesn't trigger the expensive disk-tree
+    /// walk. Recomputed only when tree structure/visibility changes.
+    @ObservationIgnored var treeRowIDs: [String] = []
     /// True only while ⌃ (Control) is held — drives the transient path bar.
     var pathPeek = false
     /// Drives the multi-selection "Edit Tags…" sheet (see MultiTagSheet).
@@ -534,31 +538,6 @@ final class AppModel {
         selectedFile = row.url
     }
 
-    /// A mouse click on a sidebar row, honoring ⌘ (toggle) and ⇧ (contiguous
-    /// range) like Finder, and falling back to select-and-activate for a plain
-    /// click. This restores explicit single-click behavior: native
-    /// `List(selection:)` was NOT delivering single clicks to these rows (the
-    /// double-click `.onTapGesture` shadowed it), so a single click did nothing —
-    /// a regression. A plain click now sole-selects the row and activates it
-    /// (folder → select only (double-click drills in); file → show its content),
-    /// mirroring the original single-click design.
-    func clickRow(id rowID: String, isDirectory: Bool, url: URL,
-                  command: Bool, shift: Bool) {
-        let r = RowSelection.click(target: rowID, current: selectedRowIDs,
-                                   anchor: selectionAnchorID, in: orderedVisibleRowIDs,
-                                   command: command, shift: shift)
-        selectedRowIDs = r.selection
-        selectionAnchorID = r.anchor
-        selectionFocusID = r.focus
-        // Activate only on a plain click (no modifier). GROUPS redesign: a single
-        // click on a real FOLDER (pinned or browser) now ONLY selects — it no
-        // longer toggles inline expansion (double-click drills into the browser
-        // instead). A single click on a FILE still opens it. Group headers /
-        // group files route through their own gestures in GroupsSection, not here.
-        guard !command, !shift else { return }
-        if !isDirectory { selectedFile = url }
-    }
-
     /// ⌘A — select every visible row. Anchor on the current sole selection (so a
     /// following ⇧↑/⇧↓ extends from where the user was, like Finder) and fall back
     /// to the first row when there was no single prior selection.
@@ -817,9 +796,14 @@ final class AppModel {
     /// so renders/keyboard-order never hit a per-tag SwiftData fetch+sort.
     var groupFilePaths: [String: [String]] = [:]
 
+    /// Monotonic version of the meta index (displayNames / hiddenPaths /
+    /// groupFilePaths). Bumped only when one of those actually changes, so order
+    /// signatures can compare a cheap Int instead of whole dictionaries.
+    @ObservationIgnored private(set) var metaVersion: Int = 0
+
     /// Replace the group-membership cache (called by `MetaIndexLoader`).
     func updateGroupFilePaths(_ map: [String: [String]]) {
-        if groupFilePaths != map { groupFilePaths = map }
+        if groupFilePaths != map { groupFilePaths = map; metaVersion &+= 1 }
     }
 
     /// The file paths in a group, sorted by effective display name (override →
