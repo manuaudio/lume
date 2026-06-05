@@ -47,7 +47,11 @@ struct TagRenameSheet: View {
     }
 
     private func commit() {
-        model.store?.renameTag(named: oldName, to: trimmed)
+        // On a successful rename/merge, migrate selection + expanded state so the
+        // renamed group's selection and expansion survive the name change.
+        if model.store?.renameTag(named: oldName, to: trimmed) == true {
+            model.handleGroupRenamed(from: oldName, to: trimmed)
+        }
         onClose()
     }
 }

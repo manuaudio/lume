@@ -115,8 +115,10 @@ struct TagManagerSheet: View {
             swatchButton(for: name, colorIndex: tag.colorIndex)
 
             // Inline rename committed on submit/blur. Routes through `model.store`.
-            InlineTagName(name: name, store: store) { old in
+            InlineTagName(name: name, store: store) { old, new in
                 selection.remove(old)
+                // Migrate any sidebar selection / expansion off the old name.
+                model.handleGroupRenamed(from: old, to: new)
             }
 
             Spacer(minLength: 0)
@@ -167,6 +169,7 @@ struct TagManagerSheet: View {
             Button("Delete", role: .destructive) {
                 for n in selectedNames {
                     store?.deleteTag(named: n)
+                    model.handleGroupDeleted(n)
                 }
                 selection.removeAll()
             }
@@ -201,6 +204,11 @@ struct TagManagerSheet: View {
                     guard !survivor.isEmpty else { return }
                     let names = selectedNames
                     store?.mergeTags(names, into: survivor, colorIndex: mergeColorIndex)
+                    // Migrate sidebar selection/expansion from each folded source
+                    // onto the survivor (no-ops for the survivor itself).
+                    for n in names where n != survivor {
+                        model.handleGroupRenamed(from: n, to: survivor)
+                    }
                     selection = [survivor]
                     merging = false
                 }
@@ -236,12 +244,13 @@ private struct SingleSwatch: View {
 }
 
 /// Inline tag-name editor. Commits on submit/blur via `renameTag` (which merges
-/// on a name clash). `onRenamed(oldName)` lets the parent prune stale selection.
+/// on a name clash). `onRenamed(oldName, newName)` lets the parent prune stale
+/// selection and migrate the sidebar selection/expansion off the old name.
 /// `store` is optional (it is `model.store`); a nil store no-ops the rename.
 private struct InlineTagName: View {
     let name: String
     let store: LibraryStore?
-    let onRenamed: (String) -> Void
+    let onRenamed: (String, String) -> Void
 
     @State private var text = ""
     @State private var didInit = false
@@ -260,7 +269,7 @@ private struct InlineTagName: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != name else { text = name; return }
         if store?.renameTag(named: name, to: trimmed) == true {
-            onRenamed(name)
+            onRenamed(name, trimmed)
         } else {
             text = name   // rejected (or no store) — restore
         }
