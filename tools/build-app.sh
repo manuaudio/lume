@@ -1,15 +1,20 @@
 #!/bin/bash
-# Builds a double-clickable Lume.app bundle (release) with the custom icon.
-#   ./tools/build-app.sh             # normal (unsandboxed) build
+# Builds a double-clickable, native Lume.app bundle (release) with the custom icon.
+#   ./tools/build-app.sh             # normal (unsandboxed) build + install
+#   ./tools/build-app.sh --run       # also launch the installed app when done
 #   ./tools/build-app.sh --sandbox   # sign with App Sandbox entitlements (opt-in)
 # Produces dist/Lume.app and installs a copy to /Applications (falls back to
-# ~/Applications if /Applications isn't writable).
+# ~/Applications if /Applications isn't writable). This is the ONLY supported way
+# to run Lume as a real app — never ship/run the bare `swift build` binary, which
+# has no bundle identity, icon, or Launchpad/Spotlight presence.
 set -euo pipefail
 
 SANDBOX=0
+RUN=0
 for arg in "$@"; do
   case "$arg" in
     --sandbox) SANDBOX=1 ;;
+    --run|--open) RUN=1 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -33,7 +38,13 @@ if [ -d "$BIN_DIR/LumeApp_LumeApp.bundle" ]; then
   cp -R "$BIN_DIR/LumeApp_LumeApp.bundle" "$APP/Contents/Resources/"
 fi
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# Version: human string stays 1.0; build number is the git commit count so every
+# build is monotonically identifiable (falls back to 1 outside a git checkout).
+SHORT_VER="1.0"
+BUILD_NUM="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
+
+# Unquoted heredoc so ${SHORT_VER}/${BUILD_NUM} expand; the plist has no other '$'.
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -44,11 +55,16 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key>      <string>com.lume.app</string>
   <key>CFBundleIconFile</key>        <string>Lume</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
-  <key>CFBundleShortVersionString</key> <string>1.0</string>
-  <key>CFBundleVersion</key>         <string>1</string>
+  <key>CFBundleShortVersionString</key> <string>${SHORT_VER}</string>
+  <key>CFBundleVersion</key>         <string>${BUILD_NUM}</string>
   <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key> <string>en</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
+  <key>LSApplicationCategoryType</key> <string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key> <true/>
+  <key>NSSupportsAutomaticTermination</key> <true/>
+  <key>NSSupportsSuddenTermination</key> <true/>
+  <key>NSHumanReadableCopyright</key> <string>© 2026 Lume</string>
   <key>NSPrincipalClass</key>        <string>NSApplication</string>
 </dict>
 </plist>
@@ -72,6 +88,13 @@ fi
 
 echo "✓ Built $APP"
 
+# Quit any running copy BEFORE replacing it on disk — otherwise we'd swap the
+# binary out from under a live process (stale/zombie state, and the relaunch
+# below would just re-focus the old instance).
+osascript -e 'quit app "Lume"' >/dev/null 2>&1 || true
+pkill -x LumeApp >/dev/null 2>&1 || true
+sleep 1
+
 # Install a copy where it's discoverable in Launchpad/Spotlight.
 # Remove any existing bundle first: `cp -R src dest` when dest exists copies
 # src *into* dest (dest/Lume.app) instead of replacing it, which silently
@@ -84,5 +107,15 @@ else
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/Lume.app"
   cp -R "$APP" "$HOME/Applications/Lume.app"
-  echo "✓ Installed to $HOME/Applications/Lume.app (/, Applications not writable)"
+  DEST="$HOME/Applications/Lume.app"
+  echo "✓ Installed to $DEST (/, Applications not writable)"
+fi
+
+# Refresh Launch Services so the new bundle is registered for Spotlight/Launchpad.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f "$DEST" >/dev/null 2>&1 || true
+
+if [ "$RUN" = "1" ]; then
+  echo "▸ Launching ${DEST}…"
+  open "$DEST"
 fi
