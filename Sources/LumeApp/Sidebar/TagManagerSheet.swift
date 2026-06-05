@@ -61,7 +61,6 @@ struct TagManagerSheet: View {
                 // Drop the old name from selection/filters; the renamed/merged
                 // tag may not match the old name anymore.
                 selection.remove(ref.name)
-                model.removeTagFilter(ref.name)
                 renaming = nil
             }
         }
@@ -118,7 +117,6 @@ struct TagManagerSheet: View {
             // Inline rename committed on submit/blur. Routes through `model.store`.
             InlineTagName(name: name, store: store) { old in
                 selection.remove(old)
-                model.removeTagFilter(old)
             }
 
             Spacer(minLength: 0)
@@ -168,7 +166,6 @@ struct TagManagerSheet: View {
                 }
             Button("Delete", role: .destructive) {
                 for n in selectedNames {
-                    model.removeTagFilter(n)
                     store?.deleteTag(named: n)
                 }
                 selection.removeAll()
@@ -204,8 +201,6 @@ struct TagManagerSheet: View {
                     guard !survivor.isEmpty else { return }
                     let names = selectedNames
                     store?.mergeTags(names, into: survivor, colorIndex: mergeColorIndex)
-                    // Re-point any active filters off merged names onto survivor.
-                    for n in names where n != survivor { model.removeTagFilter(n) }
                     selection = [survivor]
                     merging = false
                 }

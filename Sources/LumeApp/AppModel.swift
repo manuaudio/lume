@@ -18,15 +18,6 @@ final class AppModel {
     var rootFolder: URL?
     var tree: [FileNode] = []
     var selectedFile: URL?
-    /// Active tag filter (multi-tag). Empty ⇒ no filtering. Membership is toggled
-    /// from the sidebar Tags section and the active-filter bar.
-    var activeTagFilters: Set<String> = [] {
-        didSet { revalidateSelectionForFilter() }
-    }
-    /// true = All/AND (intersection), false = Any/OR (union). Defaults to All.
-    var tagFilterMatchAll: Bool = true {
-        didSet { revalidateSelectionForFilter() }
-    }
 
     // Browser
     var browseRoot: URL? {
@@ -78,6 +69,10 @@ final class AppModel {
     }
 
     var expandedPaths: Set<String> = []
+
+    /// Tag NAMES whose GROUP is currently expanded in the GROUPS region. Distinct
+    /// from `expandedPaths` (real folders) — a group has no disk folder.
+    var expandedGroups: Set<String> = []
 
     /// path → custom display name (non-empty only). Stable @Observable state,
     /// updated ONCE by `MetaIndexLoader` from the all-metadata @Query — never
@@ -285,53 +280,10 @@ final class AppModel {
         browseFilter = ""
     }
 
-    // MARK: - Tag filtering
-
-    /// True when any tag filter is active.
-    var hasTagFilter: Bool { !activeTagFilters.isEmpty }
-
-    /// Toggle a tag's membership in the active filter set.
-    func toggleTagFilter(_ name: String) {
-        if activeTagFilters.contains(name) { activeTagFilters.remove(name) }
-        else { activeTagFilters.insert(name) }
-    }
-
-    /// Remove a tag from the active filter set (active-filter bar ✕).
-    func removeTagFilter(_ name: String) { activeTagFilters.remove(name) }
-
-    /// Clear all active tag filters.
-    func clearTagFilters() { activeTagFilters.removeAll() }
-
-    /// The set of paths allowed by the current filter, or nil when no filter is
-    /// active (nil ⇒ "show everything", so callers skip filtering). Uses the
-    /// store's tested set helpers — All ⇒ intersection, Any ⇒ union.
-    var tagFilteredPaths: Set<String>? {
-        guard hasTagFilter, let store else { return nil }
-        return tagFilterMatchAll
-            ? store.paths(taggedWithAll: activeTagFilters)
-            : store.paths(taggedWithAny: activeTagFilters)
-    }
-
-    /// After the tag filter changes, drop selection state that now references
-    /// hidden FILES so the editor header doesn't keep rendering a file you can no
-    /// longer see in the sidebar. Directories stay (still navigable), matching
-    /// `FileTreeView.visibleChildren`. When `tagFilteredPaths` is nil (no active
-    /// filter) NOTHING is cleared. Called from the filter mutators' didSet.
-    private func revalidateSelectionForFilter() {
-        guard let allowed = tagFilteredPaths else { return }
-        // FILE selection (editor): clear if its path fell out of the allowed set.
-        if let file = selectedFile, !allowed.contains(file.path) {
-            selectedFile = nil
-        }
-        // Row selection + keyboard anchor/focus: drop now-hidden file rows.
-        let r = RowSelection.revalidate(selection: selectedRowIDs,
-                                        anchor: selectionAnchorID,
-                                        focus: selectionFocusID,
-                                        allowed: allowed)
-        if r.selection != selectedRowIDs { selectedRowIDs = r.selection }
-        selectionAnchorID = r.anchor
-        selectionFocusID = r.focus
-    }
+    // NOTE: the GROUPS redesign removed tag-filtering, so nothing in the app calls
+    // `RowSelection.revalidate(...)` anymore. The pure helper (and its tests) are
+    // kept in SelectionKit as harmless, still-passing dead code rather than churn
+    // the selection suite; reintroduce a caller if filtering ever returns.
 
     // MARK: - Multi-selection commands
 
@@ -580,8 +532,8 @@ final class AppModel {
     /// `List(selection:)` was NOT delivering single clicks to these rows (the
     /// double-click `.onTapGesture` shadowed it), so a single click did nothing —
     /// a regression. A plain click now sole-selects the row and activates it
-    /// (folder → toggle inline expand to reveal its children; file → show its
-    /// content), mirroring the original single-click design.
+    /// (folder → select only (double-click drills in); file → show its content),
+    /// mirroring the original single-click design.
     func clickRow(id rowID: String, isDirectory: Bool, url: URL,
                   command: Bool, shift: Bool) {
         let r = RowSelection.click(target: rowID, current: selectedRowIDs,
@@ -590,9 +542,13 @@ final class AppModel {
         selectedRowIDs = r.selection
         selectionAnchorID = r.anchor
         selectionFocusID = r.focus
-        // Activate only on a plain click (no modifier): reveal the row's content.
+        // Activate only on a plain click (no modifier). GROUPS redesign: a single
+        // click on a real FOLDER (pinned or browser) now ONLY selects — it no
+        // longer toggles inline expansion (double-click drills into the browser
+        // instead). A single click on a FILE still opens it. Group headers /
+        // group files route through their own gestures in GroupsSection, not here.
         guard !command, !shift else { return }
-        if isDirectory { toggleExpanded(url) } else { selectedFile = url }
+        if !isDirectory { selectedFile = url }
     }
 
     /// ⌘A — select every visible row. Anchor on the current sole selection (so a
@@ -817,6 +773,69 @@ final class AppModel {
             MainActor.assumeIsolated { target.trash(copies) }
         }
         undoManager?.setActionName(copies.count == 1 ? "Duplicate" : "Duplicate \(copies.count) Items")
+    }
+
+    // MARK: - Groups (tag-driven navigator)
+
+    /// Toggle a group's expansion in the GROUPS region (double-click a group).
+    func toggleGroupExpanded(_ tagName: String) {
+        if expandedGroups.contains(tagName) { expandedGroups.remove(tagName) }
+        else { expandedGroups.insert(tagName) }
+    }
+
+    /// The file paths in a group, sorted by effective display name (override →
+    /// filename), path tie-broken. Drives both the rendered rows and the flat
+    /// keyboard order, so they always agree.
+    func sortedGroupFilePaths(forTagNamed name: String) -> [String] {
+        guard let store else { return [] }
+        let paths = store.files(taggedWith: name).map(\.path)
+        return GroupSort.sorted(paths) { self.displayNames[$0] }
+    }
+
+    /// Create a new, empty, persistent group (the ＋ New Group affordance) and
+    /// expand it so it's the obvious current drag/tag target.
+    func createGroup(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let store else { return }
+        store.createEmptyTag(named: name)
+        expandedGroups.insert(name)
+    }
+
+    /// Drag-to-tag: add `tagName` to every dropped file's metadata, preserving its
+    /// existing info/displayName/other tags. Folders dropped onto a group are
+    /// ignored (groups hold files). Creates the tag if it didn't exist.
+    func tag(_ urls: [URL], withTagNamed tagName: String) {
+        guard let store else { return }
+        for url in urls {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            guard !isDir else { continue }
+            let existing = store.meta(for: url.path)
+            var names = existing?.tags.map(\.name) ?? []
+            guard !names.contains(tagName) else { continue }
+            names.append(tagName)
+            store.setMeta(path: url.path,
+                          info: existing?.info ?? "",
+                          tagNames: names,
+                          displayName: existing?.displayName ?? "")
+        }
+    }
+
+    /// Remove ONE tag from ONE file (GROUPS "Remove from {group}"). The file stays
+    /// on disk and in its other groups; the (possibly now-empty) group persists.
+    func removeFromGroup(path: String, tagNamed tagName: String) {
+        store?.removeTag(named: tagName, fromPath: path)
+    }
+
+    /// Copy every file path in a group to the clipboard, newline-joined absolute
+    /// POSIX paths (the AI hand-off), AND as file URLs (Finder/editor paste).
+    /// Order matches the group's rendered order.
+    func copyPaths(forGroupNamed tagName: String) {
+        let urls = sortedGroupFilePaths(forTagNamed: tagName).map { URL(fileURLWithPath: $0) }
+        guard !urls.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(urls.map { $0 as NSURL })
+        pb.setString(PathExport.clipboardString(for: urls), forType: .string)
     }
 
     // MARK: Derived
