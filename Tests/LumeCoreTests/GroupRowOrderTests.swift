@@ -36,4 +36,26 @@ struct GroupRowOrderTests {
             groupFilePaths: ["empty": []])
         #expect(ids == [GroupRowID.headerID(tagName: "empty")])
     }
+
+    @Test("a collapsed group skips its files while a later expanded group still emits them")
+    func mixedExpandedAndCollapsed() {
+        let ids = GroupRowOrder.ids(
+            tagNames: ["alpha", "beta"],
+            expandedGroups: ["beta"],
+            groupFilePaths: ["alpha": ["/a.md"], "beta": ["/b.md"]])
+        #expect(ids == [
+            GroupRowID.headerID(tagName: "alpha"),
+            GroupRowID.headerID(tagName: "beta"),
+            GroupRowID.fileID(tagName: "beta", path: "/b.md"),
+        ])
+    }
+
+    @Test("an expanded tag missing from the cache emits only its header")
+    func expandedTagMissingFromCache() {
+        let ids = GroupRowOrder.ids(
+            tagNames: ["ghost"],
+            expandedGroups: ["ghost"],
+            groupFilePaths: [:])
+        #expect(ids == [GroupRowID.headerID(tagName: "ghost")])
+    }
 }
