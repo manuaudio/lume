@@ -154,10 +154,11 @@ struct SidebarItemRow: View {
             // NOTE: do NOT wrap this in `.accessibilityElement(children: .combine)`.
             // Inside `List(selection:)` that synthesizes a combined a11y element
             // over the row content which HIJACKS single-click hit-testing — it
-            // silently broke click-to-select/open (double-click still worked
-            // because it goes through the explicit .onTapGesture below). These
-            // label/hint/action modifiers annotate the row's native selectable
-            // element and leave mouse selection intact.
+            // silently breaks click-to-select (single-click selection is now
+            // owned natively by `List(selection:)`, and double-click drill/open
+            // still routes through the remaining `.onTapGesture(count: 2)` below).
+            // These label/hint/action modifiers annotate the row's native
+            // selectable element and leave mouse selection intact.
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
             .accessibilityAddTraits(
