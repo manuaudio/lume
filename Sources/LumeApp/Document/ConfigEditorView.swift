@@ -70,9 +70,7 @@ struct ConfigEditorView: View {
 
     private var header: some View {
         HStack {
-            Label(fileURL.lastPathComponent, systemImage: "curlybraces")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            DocumentHeaderTitle(filename: fileURL.lastPathComponent, systemImage: "curlybraces")
             if parseError != nil, !rawMode {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.yellow)
@@ -83,9 +81,7 @@ struct ConfigEditorView: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
+        .documentHeaderBar()
     }
 
     private func reload() {

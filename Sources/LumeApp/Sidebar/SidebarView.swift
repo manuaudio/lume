@@ -335,7 +335,13 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+        // Match the bordered inset-field treatment used by the tag/notes editors
+        // so the filter field doesn't read as flat/disabled next to them.
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .textBackgroundColor))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+        )
     }
 
     // MARK: Pinned
@@ -465,6 +471,7 @@ struct SidebarView: View {
                              section: .browser, depth: 0,
                              tagFilteredPaths: tagFilteredPaths)
                     .opacity(model.pathPeek ? 0.4 : 1)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: model.pathPeek)
             }
         } header: {
             SectionHeader(title: openFolderTitle,

@@ -57,17 +57,13 @@ struct EnvView: View {
 
     private var header: some View {
         HStack {
-            Label(fileURL.lastPathComponent, systemImage: "key.fill")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            DocumentHeaderTitle(filename: fileURL.lastPathComponent, systemImage: "key.fill")
             Spacer()
             Toggle("Edit raw", isOn: $rawMode)
                 .toggleStyle(.switch)
                 .controlSize(.small)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
+        .documentHeaderBar()
     }
 
     private func reload() {

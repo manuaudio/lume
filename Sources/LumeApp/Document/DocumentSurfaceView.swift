@@ -56,19 +56,14 @@ struct DocumentSurfaceView: View {
         }
     }
 
+    // Native empty state: correct typographic scale, spacing, and centering for
+    // free, with the Open Folder call-to-action in the standard actions slot.
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 52, weight: .light))
-                .foregroundStyle(.tertiary)
-                .symbolRenderingMode(.hierarchical)
-            VStack(spacing: 6) {
-                Text("No document selected")
-                    .font(.title3.weight(.semibold))
-                Text("Open a folder, then choose a file from the sidebar.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+        ContentUnavailableView {
+            Label("No Document Selected", systemImage: "doc.text.magnifyingglass")
+        } description: {
+            Text("Open a folder, then choose a file from the sidebar.")
+        } actions: {
             if model.rootFolder == nil {
                 Button {
                     openFolderPanel()
@@ -79,8 +74,6 @@ struct DocumentSurfaceView: View {
                 .controlSize(.large)
             }
         }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func openFolderPanel() {

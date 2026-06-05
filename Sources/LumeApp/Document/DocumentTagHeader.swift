@@ -78,10 +78,7 @@ struct DocumentTagHeader: View {
                 .help("Hide tag header")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .documentHeaderBar()
         .onAppear(perform: load)
         .onChange(of: url) { _, _ in loaded = false; load() }
         .onChange(of: allTags) { _, _ in reloadFromStore() }
