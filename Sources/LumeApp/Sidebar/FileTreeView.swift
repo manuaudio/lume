@@ -4,32 +4,21 @@ import SwiftData
 import LumeCore
 import LumeUI
 
-/// Lazily lists the children of `parent`, honoring files-only + tag filter.
+/// Lazily lists the children of `parent`, honoring files-only.
 struct FileTreeView: View {
     let parent: URL
     let model: AppModel
     let section: SidebarSection
     var depth: Int = 0
-    /// The set of paths allowed by the active tag filter, or nil when no filter
-    /// is active. Computed ONCE at the top-level (root) `FileTreeView` per region
-    /// in `SidebarView` and threaded down into recursive children, so the
-    /// O(expanded-folders) SwiftData fetch behind `AppModel.tagFilteredPaths` runs
-    /// once per render instead of once per nested `FileTreeView` instance. The
-    /// parent computes it inside its view body, so the `@Observable` dependency on
-    /// `activeTagFilters`/`tagFilterMatchAll` stays tracked and the tree still
-    /// re-renders when filters toggle (or a file's tag membership changes).
-    let tagFilteredPaths: Set<String>?
 
     @State private var children: [FileNode]
 
     init(parent: URL, model: AppModel,
-         section: SidebarSection, depth: Int = 0,
-         tagFilteredPaths: Set<String>?) {
+         section: SidebarSection, depth: Int = 0) {
         self.parent = parent
         self.model = model
         self.section = section
         self.depth = depth
-        self.tagFilteredPaths = tagFilteredPaths
         // Seed children at construction so the first render shows them. A bare
         // `ForEach` whose collection is initially empty never fires `.onAppear`,
         // so relying on it to kick off the first load left the tree permanently
@@ -62,8 +51,7 @@ struct FileTreeView: View {
 
             if node.isDirectory, model.expandedPaths.contains(node.url.path) {
                 FileTreeView(parent: node.url, model: model,
-                             section: section, depth: depth + 1,
-                             tagFilteredPaths: tagFilteredPaths)
+                             section: section, depth: depth + 1)
             }
         }
         .onAppear { reload() }
@@ -94,13 +82,6 @@ struct FileTreeView: View {
         // and only when the pinned reveal toggle is off. The browser shows reality.
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if let allowed = tagFilteredPaths {
-            // Set-based filter: `allowed` is the intersection (All) or union (Any)
-            // of the active tags' paths, computed ONCE at the root FileTreeView and
-            // threaded down here. Keep directories (so you can navigate into them) +
-            // files in the allowed set. Covers BOTH regions since filtering lives here.
-            nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
             nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }

@@ -36,8 +36,8 @@ struct SidebarView: View {
     }
 
     /// Flat top-to-bottom order of every visible row id, matching what the List
-    /// actually renders (pinned region, then expanded pinned children, then the
-    /// browser tree). Feeds the keyboard range math in `AppModel`.
+    /// actually renders (GROUPS region, then FAVORITES + expanded pinned children,
+    /// then the browser tree). Feeds the keyboard range math in `AppModel`.
     ///
     /// PERFORMANCE: this recursively walks the expanded tree via
     /// `model.children(of:)` → an UNCACHED `FileManager` directory read per
@@ -46,17 +46,24 @@ struct SidebarView: View {
     /// render — a per-keystroke main-thread hang). Instead it is recomputed only
     /// from the explicit `.onChange` triggers below, for the inputs that actually
     /// change the visible STRUCTURE/order — never on `selectedRowIDs`.
-    /// `tagFilteredPaths` is computed ONCE by the caller and threaded through the
-    /// whole walk, so the SwiftData fetch behind `AppModel.tagFilteredPaths` runs a
-    /// single time per recompute instead of once per visited folder.
-    private func computeOrderedRowIDs(tagFilteredPaths: Set<String>?) -> [String] {
+    private func computeOrderedRowIDs() -> [String] {
         var ids: [String] = []
+
+        // GROUPS region first (matches the rendered order: GROUPS, FAVORITES,
+        // OPEN FOLDER). A group header row, then — when expanded — one file row
+        // per tagged file in sorted order.
+        for tag in tags {
+            ids.append(GroupRowID.headerID(tagName: tag.name))
+            guard model.expandedGroups.contains(tag.name) else { continue }
+            for path in model.sortedGroupFilePaths(forTagNamed: tag.name) {
+                ids.append(GroupRowID.fileID(tagName: tag.name, path: path))
+            }
+        }
 
         func walk(_ url: URL, isDir: Bool, section: SidebarSection, includeHidden: Bool) {
             ids.append(SidebarRow(url: url, isDirectory: isDir, section: section).id)
             guard isDir, model.expandedPaths.contains(url.path) else { return }
-            for child in visibleChildren(of: url, section: section, includeHidden: includeHidden,
-                                         tagFilteredPaths: tagFilteredPaths) {
+            for child in visibleChildren(of: url, section: section, includeHidden: includeHidden) {
                 walk(child.url, isDir: child.isDirectory, section: section, includeHidden: includeHidden)
             }
         }
@@ -67,8 +74,7 @@ struct SidebarView: View {
         }
         if let root = model.browseRoot {
             for child in visibleChildren(of: root, section: .browser,
-                                         includeHidden: model.showBrowserHidden,
-                                         tagFilteredPaths: tagFilteredPaths) {
+                                         includeHidden: model.showBrowserHidden) {
                 walk(child.url, isDir: child.isDirectory, section: .browser,
                      includeHidden: model.showBrowserHidden)
             }
@@ -80,53 +86,38 @@ struct SidebarView: View {
     /// into one cheap Equatable value. When (and only when) this changes does the
     /// recursive disk walk re-run — selection is deliberately absent. Keep this in
     /// lockstep with the inputs read by `computeOrderedRowIDs` / `visibleChildren`:
-    /// expanded set, browse root, the visible-favorites list (favorites order +
-    /// pinned-hidden reveal + hidden paths), files-only, the active tag filter
-    /// state (`activeTagFilters` + `tagFilterMatchAll`) AND the resulting filtered
-    /// path set, the browse text filter, and the browser-hidden reveal.
-    ///
-    /// We fold `tagFilteredPaths` itself (not just `activeTagFilters`) so the flat
-    /// order also re-walks when a file's tag MEMBERSHIP changes UNDER an active
-    /// filter (e.g. you tag/untag a file elsewhere): the filter set is unchanged
-    /// but the allowed paths shift, so the visible rows shift too. `nil` (no
-    /// filter) collapses to an empty set here so toggling the last filter off
-    /// still trips the signature.
+    /// expanded set, expanded GROUPS, the tag names, browse root, the
+    /// visible-favorites list (favorites order + pinned-hidden reveal + hidden
+    /// paths), files-only, the browse text filter, the browser-hidden reveal, the
+    /// display names (so a group's file order re-walks on a name change), and the
+    /// group membership cache (so adding/removing a file to/from a group re-walks).
     private var rowOrderSignature: RowOrderSignature {
         RowOrderSignature(
             expanded: model.expandedPaths,
+            expandedGroups: model.expandedGroups,
+            tagNames: tags.map(\.name),
             browseRoot: model.browseRoot?.path,
             favoritePaths: visibleFavorites.map(\.path),
             filesOnly: model.filesOnly,
-            activeTagFilters: model.activeTagFilters,
-            tagFilterMatchAll: model.tagFilterMatchAll,
-            tagFilteredPaths: model.tagFilteredPaths ?? [],
             browseFilter: model.browseFilter,
             showBrowserHidden: model.showBrowserHidden,
             showPinnedHidden: model.showPinnedHidden,
-            hiddenPaths: model.hiddenPaths
+            hiddenPaths: model.hiddenPaths,
+            displayNames: model.displayNames,
+            groupFilePaths: model.groupFilePaths
         )
     }
 
     /// The same filtering `FileTreeView.visibleChildren` applies, hoisted here so
     /// the keyboard order matches the rendered order exactly.
     /// ⚠️ CROSS-PHASE DRIFT: duplicates `FileTreeView.visibleChildren`
-    /// (FileTreeView.swift). Both copies read the SAME set-based tag filter
-    /// (`model.tagFilteredPaths`, Phase C) so the keyboard-nav flat order can never
-    /// diverge from the rendered tree. Keep them in lockstep on any future change.
+    /// (FileTreeView.swift). Keep them in lockstep on any future change.
     private func visibleChildren(of parent: URL, section: SidebarSection,
-                                 includeHidden: Bool,
-                                 tagFilteredPaths: Set<String>?) -> [FileNode] {
+                                 includeHidden: Bool) -> [FileNode] {
         var nodes = model.children(of: parent, includeHidden: includeHidden)
         if model.filesOnly { nodes = nodes.filter { !$0.isDirectory } }
         if section == .pinned, !model.showPinnedHidden {
             nodes = nodes.filter { !model.hiddenPaths.contains($0.url.path) }
-        }
-        if let allowed = tagFilteredPaths {
-            // Shared filter source of truth with FileTreeView.visibleChildren:
-            // keep the keyboard-nav flat order (orderedRowIDs) identical to the
-            // rendered tree. `allowed` is computed ONCE by the caller and threaded
-            // in. All ⇒ intersection, Any ⇒ union; directories kept.
-            nodes = nodes.filter { $0.isDirectory || allowed.contains($0.url.path) }
         }
         if !model.browseFilter.isEmpty {
             nodes = nodes.filter { $0.isDirectory || $0.name.localizedCaseInsensitiveContains(model.browseFilter) }
@@ -135,18 +126,12 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        // Compute the active tag-filter path set ONCE per render. Reading it here in
-        // the view body keeps the @Observable dependency (activeTagFilters /
-        // tagFilterMatchAll, and the tag-membership-derived set) tracked, so the
-        // tree still re-renders when filters toggle or a file's tag membership
-        // changes under an active filter. Threaded into the top-level FileTreeViews
-        // and the match-count label so the O(expanded-folders) SwiftData fetch runs
-        // a single time instead of a dozen+ times per render.
-        let tagFilteredPaths = model.tagFilteredPaths
-        return List(selection: selection) {
-            pinnedSection(tagFilteredPaths: tagFilteredPaths)
-            if !tags.isEmpty { tagsSection }
-            browserSection(tagFilteredPaths: tagFilteredPaths)
+        List(selection: selection) {
+            GroupsSection(model: model, tags: tags,
+                          renamingTag: $renamingTag,
+                          showingTagManager: $showingTagManager)
+            pinnedSection()
+            browserSection()
         }
         .listStyle(.sidebar)
         // Mount the expensive all-metadata @Query ONCE, isolated in a leaf view
@@ -154,13 +139,16 @@ struct SidebarView: View {
         // re-renders the tree. Removing the @Query from SidebarView is what kills
         // the invalidation storm.
         .background(MetaIndexLoader(model: model))
-        .safeAreaInset(edge: .top) {
-            VStack(spacing: 0) {
-                topBar
-                if model.hasTagFilter {
-                    activeFilterBar(matchCount: tagFilteredPaths?.count ?? 0)
-                }
+        .sheet(item: $renamingTag) { ref in
+            TagRenameSheet(model: model, oldName: ref.name) {
+                renamingTag = nil
             }
+        }
+        .sheet(isPresented: $showingTagManager) {
+            TagManagerSheet(model: model, isPresented: $showingTagManager)
+        }
+        .safeAreaInset(edge: .top) {
+            topBar
         }
         .safeAreaInset(edge: .bottom) {
             if model.selectedRowIDs.count >= 2 {
@@ -183,10 +171,10 @@ struct SidebarView: View {
         // folds every such input into one Equatable value, so a single onChange
         // covers them all and the expensive disk walk runs only when needed.
         .onChange(of: rowOrderSignature) { _, _ in
-            model.orderedVisibleRowIDs = computeOrderedRowIDs(tagFilteredPaths: model.tagFilteredPaths)
+            model.orderedVisibleRowIDs = computeOrderedRowIDs()
         }
         .onAppear {
-            model.orderedVisibleRowIDs = computeOrderedRowIDs(tagFilteredPaths: model.tagFilteredPaths)
+            model.orderedVisibleRowIDs = computeOrderedRowIDs()
         }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
@@ -293,45 +281,6 @@ struct SidebarView: View {
         .background(.bar)
     }
 
-    /// Active tag-filter bar: removable chips + All/Any toggle + match count +
-    /// Clear. Only rendered when `model.hasTagFilter`.
-    /// `matchCount` is the size of the active-filter path set, computed ONCE in the
-    /// body and passed in — it was previously read twice here (count + pluralization),
-    /// each triggering the SwiftData fetch behind `tagFilteredPaths`.
-    private func activeFilterBar(matchCount: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Picker("", selection: Binding(get: { model.tagFilterMatchAll },
-                                              set: { model.tagFilterMatchAll = $0 })) {
-                    Text("All").tag(true)
-                    Text("Any").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .fixedSize()
-                .help("All = match every tag (AND); Any = match any tag (OR)")
-                .accessibilityLabel("Tag filter match mode")
-                Spacer(minLength: 0)
-                Text("\(matchCount) match\(matchCount == 1 ? "" : "es")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Clear") { model.clearTagFilters() }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-            }
-            FlowLayout(spacing: 4) {
-                ForEach(Array(model.activeTagFilters).sorted(), id: \.self) { name in
-                    TagChip(name: name,
-                            colorIndex: model.store?.colorIndex(forTagNamed: name) ?? 0,
-                            onRemove: { model.removeTagFilter(name) })
-                }
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.bar)
-    }
-
     private var filterField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -370,7 +319,7 @@ struct SidebarView: View {
         return name.isEmpty ? "OPEN FOLDER" : "OPEN FOLDER · \(name)"
     }
 
-    @ViewBuilder private func pinnedSection(tagFilteredPaths: Set<String>?) -> some View {
+    @ViewBuilder private func pinnedSection() -> some View {
         Section {
             if favorites.isEmpty {
                 Text("Right-click any file or folder to pin it.")
@@ -392,8 +341,7 @@ struct SidebarView: View {
                     // in place (the curation surface), mirroring the browser tree.
                     if isDir, model.expandedPaths.contains(url.path) {
                         FileTreeView(parent: url, model: model,
-                                     section: .pinned, depth: 1,
-                                     tagFilteredPaths: tagFilteredPaths)
+                                     section: .pinned, depth: 1)
                     }
                 }
                 .onMove { indices, newOffset in
@@ -418,82 +366,14 @@ struct SidebarView: View {
         }
     }
 
-    // MARK: Tags (clickable filters)
-
-    @ViewBuilder private var tagsSection: some View {
-        Section {
-            ForEach(tags) { tag in
-                let active = model.activeTagFilters.contains(tag.name)
-                // A real Button (not a tap-gesture HStack) so the tag filter is
-                // keyboard-operable and VoiceOver reads it as a button with on/off
-                // state — filtering is a core action and was previously mouse-only.
-                Button {
-                    model.toggleTagFilter(tag.name)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: active ? "tag.fill" : "tag")
-                            .foregroundStyle(tagColor(tag.colorIndex))
-                        Text(tag.name)
-                            .foregroundStyle(active ? Color.primary : .secondary)
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(active ? "Filtering by “\(tag.name)” — click to remove"
-                             : "Filter by “\(tag.name)”")
-                .accessibilityAddTraits(active ? .isSelected : [])
-                .accessibilityValue(active ? "filtering" : "not filtering")
-                .contextMenu {
-                    Button("Rename…", systemImage: "pencil") {
-                        renamingTag = TagRef(name: tag.name)
-                    }
-                    Menu("Color") {
-                        ForEach(0..<TagPalette.count, id: \.self) { i in
-                            Button(TagPalette.swatch(at: i).name) {
-                                model.store?.recolorTag(named: tag.name, colorIndex: i)
-                            }
-                        }
-                    }
-                    Divider()
-                    Button("Delete Tag", systemImage: "trash", role: .destructive) {
-                        model.removeTagFilter(tag.name)
-                        model.store?.deleteTag(named: tag.name)
-                    }
-                }
-            }
-        } header: {
-            HStack {
-                Text("TAGS")
-                Spacer()
-                Button { showingTagManager = true } label: {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help("Manage tags (rename, recolor, merge, delete)")
-                .accessibilityLabel("Manage tags")
-            }
-        }
-        .sheet(item: $renamingTag) { ref in
-            TagRenameSheet(model: model, oldName: ref.name) {
-                renamingTag = nil
-            }
-        }
-        .sheet(isPresented: $showingTagManager) {
-            TagManagerSheet(model: model, isPresented: $showingTagManager)
-        }
-    }
-
     // MARK: Browser
 
-    @ViewBuilder private func browserSection(tagFilteredPaths: Set<String>?) -> some View {
+    @ViewBuilder private func browserSection() -> some View {
         Section {
             pathPeekBar
             if let root = model.browseRoot {
                 FileTreeView(parent: root, model: model,
-                             section: .browser, depth: 0,
-                             tagFilteredPaths: tagFilteredPaths)
+                             section: .browser, depth: 0)
                     .opacity(model.pathPeek ? 0.4 : 1)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: model.pathPeek)
             }
@@ -545,21 +425,36 @@ struct SidebarView: View {
 struct MetaIndexLoader: View {
     let model: AppModel
     @Query private var allMeta: [FileMeta]
+    // Observe the tag list too, so EMPTY groups (tags with no files — invisible
+    // when iterating FileMeta) still get a `[name: []]` entry, and so a tag
+    // create/rename/delete refreshes the membership cache.
+    @Query(sort: \Tag.name) private var allTags: [Tag]
 
     var body: some View {
         Color.clear
             .onAppear { push() }
             .onChange(of: allMeta) { _, _ in push() }
+            .onChange(of: allTags.map(\.name)) { _, _ in push() }
     }
 
     private func push() {
         var names: [String: String] = [:]
         var hidden: Set<String> = []
+        // Seed every existing tag with an empty list so empty groups still render.
+        var groups: [String: [String]] = [:]
+        for t in allTags { groups[t.name] = [] }
         for m in allMeta {
             if !m.displayName.isEmpty { names[m.path] = m.displayName }
             if m.hidden { hidden.insert(m.path) }
+            for tag in m.tags { groups[tag.name, default: []].append(m.path) }
         }
         model.updateMetaIndex(displayNames: names, hiddenPaths: hidden)
+        // Sort each group by effective display name (reusing the names just built),
+        // matching `sortedGroupFilePaths`' previous on-the-fly ordering.
+        for (name, paths) in groups {
+            groups[name] = GroupSort.sorted(paths) { names[$0] }
+        }
+        model.updateGroupFilePaths(groups)
     }
 }
 
@@ -571,16 +466,21 @@ struct MetaIndexLoader: View {
 /// changed — never on a mere selection change. See `SidebarView.rowOrderSignature`.
 private struct RowOrderSignature: Equatable {
     let expanded: Set<String>
+    let expandedGroups: Set<String>
+    let tagNames: [String]
     let browseRoot: String?
     let favoritePaths: [String]
     let filesOnly: Bool
-    let activeTagFilters: Set<String>
-    let tagFilterMatchAll: Bool
-    let tagFilteredPaths: Set<String>
     let browseFilter: String
     let showBrowserHidden: Bool
     let showPinnedHidden: Bool
     let hiddenPaths: Set<String>
+    // Folded in so a group's file order re-walks when a display name changes
+    // (group rows sort by effective display name).
+    let displayNames: [String: String]
+    // Folded in so the group rows re-walk when membership changes (a file is
+    // tagged/untagged, or a group emptied) even if no display name changed.
+    let groupFilePaths: [String: [String]]
 }
 
 // MARK: - SectionHeader

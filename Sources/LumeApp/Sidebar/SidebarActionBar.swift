@@ -32,25 +32,30 @@ struct SidebarActionBar: View {
             }
             .help("Tag…")
 
-            if model.selectionSection == .browser {
-                // Browse: Pin (or Unpin if all already pinned).
-                let allPinned = model.selectionIsAllPinned
-                Button { allPinned ? model.unpinSelection() : model.pinSelection() } label: {
-                    Image(systemName: allPinned ? "pin.slash" : "pin")
-                }
-                .help(allPinned ? "Unpin" : "Pin")
-            } else {
-                // Favorites: Unpin + Hide/Unhide curation.
-                Button { model.unpinSelection() } label: {
-                    Image(systemName: "pin.slash")
-                }
-                .help("Unpin")
+            // Pin/Hide act on real files only — suppress them entirely for an
+            // all-group-header/file selection (every id decodes to nil, so they'd
+            // no-op). Copy Paths / Tag… stay (Tag… is still meaningful via paths).
+            if model.selectionHasRealItems {
+                if model.selectionSection == .browser {
+                    // Browse: Pin (or Unpin if all already pinned).
+                    let allPinned = model.selectionIsAllPinned
+                    Button { allPinned ? model.unpinSelection() : model.pinSelection() } label: {
+                        Image(systemName: allPinned ? "pin.slash" : "pin")
+                    }
+                    .help(allPinned ? "Unpin" : "Pin")
+                } else {
+                    // Favorites: Unpin + Hide/Unhide curation.
+                    Button { model.unpinSelection() } label: {
+                        Image(systemName: "pin.slash")
+                    }
+                    .help("Unpin")
 
-                let allHidden = model.selectionIsAllHidden(hiddenPaths)
-                Button { model.setHiddenForSelection(!allHidden) } label: {
-                    Image(systemName: allHidden ? "eye" : "eye.slash")
+                    let allHidden = model.selectionIsAllHidden(hiddenPaths)
+                    Button { model.setHiddenForSelection(!allHidden) } label: {
+                        Image(systemName: allHidden ? "eye" : "eye.slash")
+                    }
+                    .help(allHidden ? "Un-hide" : "Hide")
                 }
-                .help(allHidden ? "Un-hide" : "Hide")
             }
         }
         .buttonStyle(.borderless)

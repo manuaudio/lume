@@ -123,9 +123,6 @@ public final class LibraryStore {
         let uniqueNames = tagNames.filter { seen.insert($0).inserted }
         meta.tags = uniqueNames.map { tag(named: $0) }
         try? context.save()
-        // Removing a tag from its last file would otherwise leave a dangling
-        // tag in the sidebar; prune so "clear the field" actually removes it.
-        pruneOrphanTags()
     }
 
     public func meta(for path: String) -> FileMeta? {
@@ -219,6 +216,27 @@ public final class LibraryStore {
     public func recolorTag(named name: String, colorIndex: Int) {
         guard let t = existingTag(named: name) else { return }
         t.colorIndex = TagPalette.wrap(colorIndex)
+        try? context.save()
+    }
+
+    /// Create a brand-new, EMPTY tag (a GROUP with no files yet). Trims the name,
+    /// ignores blanks, and is idempotent by name (reuses an existing tag). New
+    /// tags get the next cycling palette color, like any tag created via `setMeta`.
+    /// Empty tags persist — they are NOT auto-pruned (see the GROUPS design: a
+    /// user-created group with zero files is valid).
+    public func createEmptyTag(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, existingTag(named: name) == nil else { return }
+        context.insert(Tag(name: name, colorIndex: nextColorIndex()))
+        try? context.save()
+    }
+
+    /// Remove ONE tag from ONE file (the GROUPS "Remove from {group}" action). The
+    /// file stays on disk and keeps every other tag; the tag persists even if this
+    /// was its last file (empty groups are valid — no auto-prune).
+    public func removeTag(named name: String, fromPath path: String) {
+        guard let meta = meta(for: path) else { return }
+        meta.tags.removeAll { $0.name == name }
         try? context.save()
     }
 
