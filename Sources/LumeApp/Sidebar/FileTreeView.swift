@@ -4,6 +4,31 @@ import SwiftData
 import LumeCore
 import LumeUI
 
+/// One file-tree element: the row, plus — only when it's an expanded folder —
+/// its recursive subtree, presented as a SINGLE child view so the parent
+/// ForEach keeps a constant view count per element.
+private struct FileNodeView: View {
+    let node: FileNode
+    let model: AppModel
+    let section: SidebarSection
+    let depth: Int
+
+    var body: some View {
+        SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
+                       section: section, depth: depth,
+                       model: model,
+                       displayName: model.displayNames[node.url.path],
+                       isHidden: model.hiddenPaths.contains(node.url.path))
+            .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
+                            section: section).id)
+
+        if node.isDirectory, model.expandedPaths.contains(node.url.path) {
+            FileTreeView(parent: node.url, model: model,
+                         section: section, depth: depth + 1)
+        }
+    }
+}
+
 /// Lazily lists the children of `parent`, honoring files-only.
 struct FileTreeView: View {
     let parent: URL
@@ -36,23 +61,16 @@ struct FileTreeView: View {
     }
 
     var body: some View {
+        // Per-row SCALARS, not the whole dicts. Reading model.displayNames /
+        // model.hiddenPaths inside FileNodeView re-renders this (cheap) ForEach on
+        // a meta change, but each leaf row receives an unchanged scalar and SwiftUI
+        // skips it — only the edited row's scalar changes, so only it renders.
+        // Each node maps to exactly ONE child view (FileNodeView), so the outer
+        // ForEach keeps a CONSTANT view count per element: expanding a folder grows
+        // FileNodeView's body, not the sibling list, so SwiftUI doesn't re-diff the
+        // whole row collection (Apple's constant-view-count rule).
         ForEach(visibleChildren) { node in
-            // Per-row SCALARS, not the whole dicts. Reading model.displayNames /
-            // model.hiddenPaths here re-renders this (cheap) ForEach on a meta
-            // change, but each leaf row receives an unchanged scalar and SwiftUI
-            // skips it — only the edited row's scalar changes, so only it renders.
-            SidebarItemRow(url: node.url, isDirectory: node.isDirectory,
-                           section: section, depth: depth,
-                           model: model,
-                           displayName: model.displayNames[node.url.path],
-                           isHidden: model.hiddenPaths.contains(node.url.path))
-                .tag(SidebarRow(url: node.url, isDirectory: node.isDirectory,
-                                section: section).id)
-
-            if node.isDirectory, model.expandedPaths.contains(node.url.path) {
-                FileTreeView(parent: node.url, model: model,
-                             section: section, depth: depth + 1)
-            }
+            FileNodeView(node: node, model: model, section: section, depth: depth)
         }
         .onAppear { reload() }
         .onChange(of: parent) { _, _ in reload() }
