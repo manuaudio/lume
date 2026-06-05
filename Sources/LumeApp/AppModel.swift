@@ -664,6 +664,59 @@ final class AppModel {
         if selectedRowIsDirectory { drillInto(url) } else { selectedFile = url }
     }
 
+    /// ← on a collapsed folder / file: jump to the parent folder row when it's
+    /// visible in the tree (Finder's Left-arrow traversal). Returns whether it
+    /// moved, so the caller can fall through to `.ignored` at the root.
+    func selectParentRow(ofRowID id: String) -> Bool {
+        let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return false }
+        let section = String(parts[0])
+        let parent = URL(fileURLWithPath: String(parts[2])).deletingLastPathComponent()
+        let parentID = "\(section)|d|\(parent.path)"
+        guard orderedVisibleRowIDs.contains(parentID) else { return false }
+        selectedRowIDs = [parentID]
+        selectionAnchorID = parentID
+        selectionFocusID = parentID
+        return true
+    }
+
+    // MARK: Type-to-select (Finder typeahead)
+
+    @ObservationIgnored private var typeaheadBuffer = ""
+    @ObservationIgnored private var typeaheadReset: Task<Void, Never>?
+
+    /// Accumulate a typed character and jump to the first visible row whose name
+    /// starts with the buffer, resetting the buffer after a short idle (Finder
+    /// type-to-select). Keyed off the rendered `orderedVisibleRowIDs` so the match
+    /// order is exactly what the user sees.
+    func typeaheadAppend(_ character: Character) {
+        typeaheadReset?.cancel()
+        typeaheadBuffer.append(character)
+        selectByTypeahead(typeaheadBuffer)
+        typeaheadReset = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            if Task.isCancelled { return }
+            self?.typeaheadBuffer = ""
+        }
+    }
+
+    private func selectByTypeahead(_ prefix: String) {
+        let needle = prefix.lowercased()
+        guard !needle.isEmpty else { return }
+        for id in orderedVisibleRowIDs {
+            let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3 else { continue }
+            let path = String(parts[2])
+            let name = (displayNames[path] ?? (path as NSString).lastPathComponent).lowercased()
+            guard name.hasPrefix(needle) else { continue }
+            selectedRowIDs = [id]
+            selectionAnchorID = id
+            selectionFocusID = id
+            if parts[1] == "f" { selectedFile = URL(fileURLWithPath: path) }
+            return
+        }
+    }
+
     // MARK: Derived
 
     var selectedKind: FileKind? {

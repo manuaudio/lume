@@ -359,7 +359,9 @@ struct RowMenu: View {
                     ensureSelected()
                     model.setHiddenForSelection(!model.selectionIsAllHidden(hiddenPaths))
                 }
-                .keyboardShortcut(.delete, modifiers: .command)
+                // ⌃⌘H, not ⌘⌫: ⌘⌫ is the universal "Move to Trash" and is reserved
+                // for that (see RowMenu trash action).
+                .keyboardShortcut("h", modifiers: [.control, .command])
             }
 
             Button("Edit Tags…", systemImage: "tag") {

@@ -201,16 +201,24 @@ struct SidebarView: View {
         }
         .onKeyPress(.rightArrow) {
             guard let id = model.soleSelectedRowID,
-                  let row = SidebarRow.decode(id), row.isDirectory else { return .ignored }
-            model.expandedPaths.insert(row.url.path)
+                  let row = SidebarRow.decode(id) else { return .ignored }
+            guard row.isDirectory else { return .ignored }   // → on a file: no-op
+            if model.expandedPaths.contains(row.url.path) {
+                model.moveSelection(by: 1)                    // already open → descend
+            } else {
+                model.expandedPaths.insert(row.url.path)      // closed → expand
+            }
             return .handled
         }
         .onKeyPress(.leftArrow) {
             guard let id = model.soleSelectedRowID,
-                  let row = SidebarRow.decode(id), row.isDirectory,
-                  model.expandedPaths.contains(row.url.path) else { return .ignored }
-            model.expandedPaths.remove(row.url.path)
-            return .handled
+                  let row = SidebarRow.decode(id) else { return .ignored }
+            if row.isDirectory, model.expandedPaths.contains(row.url.path) {
+                model.expandedPaths.remove(row.url.path)      // open folder → collapse
+                return .handled
+            }
+            // Collapsed folder or file → jump to the parent folder (Finder).
+            return model.selectParentRow(ofRowID: id) ? .handled : .ignored
         }
         .onKeyPress(keys: [.upArrow], phases: .down) { press in
             if press.modifiers.contains(.shift) {
@@ -240,6 +248,17 @@ struct SidebarView: View {
         .onKeyPress(keys: ["a"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             model.selectAllVisibleRows()
+            return .handled
+        }
+        // Type-to-select: a printable letter/number with no ⌘/⌃ jumps to the
+        // first matching visible row (Finder typeahead). Arrows, space, ⏎, and
+        // shortcuts produce non-alphanumeric characters here and pass through.
+        .onKeyPress(phases: .down) { press in
+            guard !press.modifiers.contains(.command),
+                  !press.modifiers.contains(.control),
+                  let ch = press.characters.first,
+                  ch.isLetter || ch.isNumber else { return .ignored }
+            model.typeaheadAppend(ch)
             return .handled
         }
         .onReceive(NotificationCenter.default.publisher(for: .lumeFocusFilter)) { _ in

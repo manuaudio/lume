@@ -55,8 +55,9 @@ struct LumeCommands: Commands {
             Divider()
             Button("Rename") { post(.lumeRename) }
                 .keyboardShortcut("r", modifiers: .command)
+            // ⌃⌘P, not ⌘D: ⌘D is the universal "Duplicate" and must stay free.
             Button("Pin / Unpin") { post(.lumePin) }
-                .keyboardShortcut("d", modifiers: .command)
+                .keyboardShortcut("p", modifiers: [.control, .command])
         }
     }
 
