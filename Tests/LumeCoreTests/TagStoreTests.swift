@@ -104,17 +104,3 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(store.renameTag(named: "ghost", to: "x") == false)
     #expect(store.allTags().map(\.name) == ["work"])
 }
-
-@MainActor @Test func setMetaPrunesNewlyOrphanedTags() throws {
-    let (store, container) = try makeStore()
-    defer { withExtendedLifetime(container) {} }
-    store.setMeta(path: "/a.md", info: "", tagNames: ["solo"])
-    #expect(store.allTags().map(\.name) == ["solo"])
-    store.setMeta(path: "/a.md", info: "", tagNames: [])
-    #expect(store.allTags().isEmpty)
-    store.setMeta(path: "/x.md", info: "", tagNames: ["shared"])
-    store.setMeta(path: "/y.md", info: "", tagNames: ["shared"])
-    store.setMeta(path: "/x.md", info: "", tagNames: [])
-    #expect(store.allTags().map(\.name) == ["shared"])
-    #expect(store.paths(taggedWith: "shared") == ["/y.md"])
-}

@@ -76,3 +76,16 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     store.removeTag(named: "x", fromPath: "/missing.md") // unknown path
     #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["x"])
 }
+
+@MainActor @Test func clearingLastFilesTagsKeepsTheEmptyGroup() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["solo"])
+    #expect(store.allTags().map(\.name) == ["solo"])
+
+    // Clearing the only file's tags MUST NOT delete the "solo" group anymore.
+    store.setMeta(path: "/a.md", info: "", tagNames: [])
+    #expect(store.allTags().map(\.name) == ["solo"])   // empty group persists
+    #expect(store.files(taggedWith: "solo").isEmpty)
+}
