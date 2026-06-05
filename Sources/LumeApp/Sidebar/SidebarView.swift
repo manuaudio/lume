@@ -48,6 +48,12 @@ struct SidebarView: View {
                           groupFilePaths: model.groupFilePaths)
     }
 
+    /// The combined visible order = GROUPS slice + cached tree slice. Single
+    /// source of the assembly so the cache-coherence invariant lives in one place.
+    private func recombineVisibleOrder() {
+        model.orderedVisibleRowIDs = groupRowIDs() + model.treeRowIDs
+    }
+
     /// Expensive favorites + browser slice: recursively walks the expanded tree
     /// via `model.children(of:)` → an UNCACHED `FileManager` directory read per
     /// expanded folder. NOT observed by the body (that recomputed the whole disk
@@ -161,19 +167,19 @@ struct SidebarView: View {
         }
         .onChange(of: model.selectedRowIDs) { _, _ in model.openIfSingleFileSelected() }
         // GROUP toggles, tag membership, tag list changes → recompute the cheap
-        // cache-only GROUPS slice and recombine. No disk walk.
-        .onChange(of: groupOrderSignature) { _, _ in
-            model.orderedVisibleRowIDs = groupRowIDs() + model.treeRowIDs
-        }
+        // cache-only GROUPS slice and recombine. No disk walk. Relies on `onAppear`
+        // below having seeded `treeRowIDs` first (`.onChange` doesn't fire on the
+        // initial mount, so `onAppear` always runs before any signal here).
+        .onChange(of: groupOrderSignature) { _, _ in recombineVisibleOrder() }
         // Favorites/browser structure changes → re-run the recursive disk walk,
         // cache it, recombine.
         .onChange(of: treeOrderSignature) { _, _ in
             model.treeRowIDs = computeTreeRowIDs()
-            model.orderedVisibleRowIDs = groupRowIDs() + model.treeRowIDs
+            recombineVisibleOrder()
         }
         .onAppear {
             model.treeRowIDs = computeTreeRowIDs()
-            model.orderedVisibleRowIDs = groupRowIDs() + model.treeRowIDs
+            recombineVisibleOrder()
         }
         // List-scoped keys: these only fire when the List — not a text field —
         // is first responder, so they never interfere with the filter/rename/
