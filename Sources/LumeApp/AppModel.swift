@@ -4,6 +4,14 @@ import Observation
 import AppKit
 import LumeCore
 
+/// One trashed item's round-trip: where it landed in the Trash (`from`) and the
+/// original path to restore it to (`to`). Sendable so undo closures can capture
+/// it without crossing actor-isolation rules.
+struct TrashRestore: Sendable {
+    let from: URL
+    let to: URL
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -715,6 +723,91 @@ final class AppModel {
             if parts[1] == "f" { selectedFile = URL(fileURLWithPath: path) }
             return
         }
+    }
+
+    // MARK: File operations (New Folder · Move to Trash · Duplicate, with Undo)
+
+    /// The focused window's UndoManager, set by the sidebar on appear so file
+    /// operations register on the window's undo stack (⌘Z / ⌘⇧Z).
+    @ObservationIgnored weak var undoManager: UndoManager?
+
+    /// Create a new untitled folder in `parent` (defaults to the browse root),
+    /// reveal it, and start an inline rename. Undo trashes it.
+    func newFolder(in parent: URL? = nil) {
+        guard let dir = parent ?? browseRoot else { return }
+        let url = FileOps.uniqueChild(in: dir, base: "untitled folder")
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        } catch { return }
+        cache.invalidate(path: dir.path)
+        expandedPaths.insert(dir.path)
+        renamingPath = url.path
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated { target.trash([url]) }
+        }
+        undoManager?.setActionName("New Folder")
+    }
+
+    /// Move the current selection (or an explicit `urls`) to the Trash. Recoverable
+    /// (it's the Trash, not a delete); Undo restores the exact items.
+    func trash(_ urls: [URL]? = nil) {
+        let targets = urls ?? selectedURLs
+        guard !targets.isEmpty else { return }
+        var restores: [TrashRestore] = []
+        for url in targets {
+            var resulting: NSURL?
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+                if let trashed = resulting as URL? { restores.append(TrashRestore(from: trashed, to: url)) }
+            } catch { /* skip items that can't be trashed (e.g. permission) */ }
+        }
+        guard !restores.isEmpty else { return }
+        for url in targets { cache.invalidate(path: url.deletingLastPathComponent().path) }
+        // Drop trashed rows from selection / the open document.
+        if let sel = selectedFile, targets.contains(sel) { selectedFile = nil }
+        selectedRowIDs = selectedRowIDs.filter { id in
+            guard let u = SidebarRow.decode(id)?.url else { return true }
+            return !targets.contains(u)
+        }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated { target.restoreTrashed(restores) }
+        }
+        undoManager?.setActionName(targets.count == 1 ? "Move to Trash"
+                                                      : "Move \(targets.count) Items to Trash")
+    }
+
+    /// Undo of `trash`: move each item back from the Trash to its original path.
+    /// Re-registers `trash` so redo (⌘⇧Z) works.
+    func restoreTrashed(_ restores: [TrashRestore]) {
+        var redo: [URL] = []
+        for r in restores {
+            do { try FileManager.default.moveItem(at: r.from, to: r.to); redo.append(r.to) }
+            catch { /* original location gone — skip */ }
+        }
+        for r in restores { cache.invalidate(path: r.to.deletingLastPathComponent().path) }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated { target.trash(redo) }
+        }
+        undoManager?.setActionName("Move to Trash")
+    }
+
+    /// Duplicate each selected item (or an explicit `url`) next to itself as
+    /// "<name> copy". Undo trashes the copies.
+    func duplicate(_ url: URL? = nil) {
+        let sources = url.map { [$0] } ?? selectedURLs
+        guard !sources.isEmpty else { return }
+        var copies: [URL] = []
+        for src in sources {
+            let dest = FileOps.duplicateURL(for: src)
+            do { try FileManager.default.copyItem(at: src, to: dest); copies.append(dest) }
+            catch { /* skip on failure */ }
+        }
+        guard !copies.isEmpty else { return }
+        for src in sources { cache.invalidate(path: src.deletingLastPathComponent().path) }
+        undoManager?.registerUndo(withTarget: self) { target in
+            MainActor.assumeIsolated { target.trash(copies) }
+        }
+        undoManager?.setActionName(copies.count == 1 ? "Duplicate" : "Duplicate \(copies.count) Items")
     }
 
     // MARK: Derived

@@ -6,6 +6,7 @@ import LumeCore
 struct ContentView: View {
     @State private var model = AppModel()
     @Environment(\.modelContext) private var context
+    @Environment(\.undoManager) private var undoManager
 
     @State private var isFavorited = false
 
@@ -46,9 +47,11 @@ struct ContentView: View {
         }
         .onAppear {
             model.libraryContext = context
+            model.undoManager = undoManager
             model.seedAndMigratePins()
             model.applyLaunchEnvironment()
         }
+        .onChange(of: undoManager) { _, new in model.undoManager = new }
         .onReceive(NotificationCenter.default.publisher(for: .lumeOpenFolder)) { _ in
             openFolderPanel()
         }
@@ -56,6 +59,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .lumePin)) { _ in model.pinSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .lumeDrillUp)) { _ in model.drillUp() }
         .onReceive(NotificationCenter.default.publisher(for: .lumeOpenOrDrill)) { _ in model.openOrDrillSelected() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeNewFolder)) { _ in model.newFolder() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeDuplicate)) { _ in model.duplicate() }
+        .onReceive(NotificationCenter.default.publisher(for: .lumeTrash)) { _ in model.trash() }
         .onChange(of: model.selectedFile) { _, _ in
             refreshFavoriteState()
         }

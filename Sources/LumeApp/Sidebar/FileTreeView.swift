@@ -344,6 +344,23 @@ struct RowMenu: View {
             }
             .keyboardShortcut("c", modifiers: [.option, .command])
 
+            // Real filesystem operations live in the browser (the live tree);
+            // the pinned region is a curation surface (use Pin/Hide there).
+            if section == .browser {
+                Divider()
+                if isDirectory && !multi {
+                    Button("New Folder", systemImage: "folder.badge.plus") {
+                        model.newFolder(in: url)
+                    }
+                }
+                Button("Duplicate", systemImage: "plus.square.on.square") {
+                    ensureSelected(); model.duplicate()
+                }
+                Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                    ensureSelected(); model.trash()
+                }
+            }
+
             // Hide/Un-hide curates the FAVORITES view, so it applies ONLY to a
             // nested item inside a pinned folder — never a top-level favorite
             // (use Unpin) and never the browser (which shows reality).

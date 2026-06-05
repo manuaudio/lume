@@ -10,6 +10,9 @@ extension Notification.Name {
     static let lumeDrillUp     = Notification.Name("lumeDrillUp")
     static let lumeOpenOrDrill = Notification.Name("lumeOpenOrDrill")
     static let lumeFocusFilter = Notification.Name("lumeFocusFilter")
+    static let lumeNewFolder   = Notification.Name("lumeNewFolder")
+    static let lumeDuplicate   = Notification.Name("lumeDuplicate")
+    static let lumeTrash       = Notification.Name("lumeTrash")
 }
 
 /// Forces the SPM executable to behave like a regular foreground GUI app.

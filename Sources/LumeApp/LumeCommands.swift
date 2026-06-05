@@ -26,8 +26,19 @@ struct LumeCommands: Commands {
     var body: some Commands {
         // ⌘O — always available to open a folder in Browse.
         CommandGroup(after: .newItem) {
+            Button("New Folder") { post(.lumeNewFolder) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Open Folder…") { post(.lumeOpenFolder) }
                 .keyboardShortcut("o", modifiers: .command)
+        }
+
+        // Standard file edits, wired to the universal shortcuts now that Pin/Hide
+        // no longer squat on them.
+        CommandGroup(after: .pasteboard) {
+            Button("Duplicate") { post(.lumeDuplicate) }
+                .keyboardShortcut("d", modifiers: .command)
+            Button("Move to Trash") { post(.lumeTrash) }
+                .keyboardShortcut(.delete, modifiers: .command)
         }
 
         CommandMenu("View") {
