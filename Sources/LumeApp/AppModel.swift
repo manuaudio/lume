@@ -91,8 +91,8 @@ final class AppModel {
     /// view on appear and whenever the all-metadata @Query changes — the only
     /// place the expensive full-table fetch touches the model.
     func updateMetaIndex(displayNames: [String: String], hiddenPaths: Set<String>) {
-        if self.displayNames != displayNames { self.displayNames = displayNames }
-        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths }
+        if self.displayNames != displayNames { self.displayNames = displayNames; metaVersion &+= 1 }
+        if self.hiddenPaths != hiddenPaths { self.hiddenPaths = hiddenPaths; metaVersion &+= 1 }
     }
     /// Multi-row selection for the sidebar `List`. Single-row behaviors
     /// (Quick Look, ←/→, open-on-select) run only when this holds exactly one id.
@@ -796,9 +796,14 @@ final class AppModel {
     /// so renders/keyboard-order never hit a per-tag SwiftData fetch+sort.
     var groupFilePaths: [String: [String]] = [:]
 
+    /// Monotonic version of the meta index (displayNames / hiddenPaths /
+    /// groupFilePaths). Bumped only when one of those actually changes, so order
+    /// signatures can compare a cheap Int instead of whole dictionaries.
+    @ObservationIgnored private(set) var metaVersion: Int = 0
+
     /// Replace the group-membership cache (called by `MetaIndexLoader`).
     func updateGroupFilePaths(_ map: [String: [String]]) {
-        if groupFilePaths != map { groupFilePaths = map }
+        if groupFilePaths != map { groupFilePaths = map; metaVersion &+= 1 }
     }
 
     /// The file paths in a group, sorted by effective display name (override →

@@ -91,7 +91,7 @@ struct SidebarView: View {
         GroupOrderSignature(
             expandedGroups: model.expandedGroups,
             tagNames: tags.map(\.name),
-            groupFilePaths: model.groupFilePaths)
+            metaVersion: model.metaVersion)
     }
 
     /// Favorites + browser order inputs (expensive). Only a change here re-runs
@@ -468,7 +468,7 @@ struct MetaIndexLoader: View {
 private struct GroupOrderSignature: Equatable {
     let expandedGroups: Set<String>
     let tagNames: [String]
-    let groupFilePaths: [String: [String]]
+    let metaVersion: Int
 }
 
 private struct TreeOrderSignature: Equatable {
