@@ -199,4 +199,76 @@ import Testing
         #expect(r.anchor == id)
         #expect(r.focus == id)
     }
+
+    // MARK: click (mouse single-click — the regression these guard)
+
+    @Test func plainClickSoleSelectsAndAnchors() {
+        // A plain click collapses any prior selection to just the clicked row,
+        // which becomes the new anchor/focus. (The caller then activates it.)
+        let r = RowSelection.click(target: "c", current: ["a", "b"], anchor: "a",
+                                   in: order, command: false, shift: false)
+        #expect(r.selection == ["c"])
+        #expect(r.anchor == "c")
+        #expect(r.focus == "c")
+    }
+
+    @Test func plainClickWithNoPriorSelectionSelectsRow() {
+        let r = RowSelection.click(target: "b", current: [], anchor: nil,
+                                   in: order, command: false, shift: false)
+        #expect(r.selection == ["b"])
+        #expect(r.anchor == "b")
+    }
+
+    @Test func commandClickAddsToSelectionAndMovesAnchor() {
+        let r = RowSelection.click(target: "d", current: ["a", "b"], anchor: "a",
+                                   in: order, command: true, shift: false)
+        #expect(r.selection == ["a", "b", "d"])
+        #expect(r.anchor == "d")
+        #expect(r.focus == "d")
+    }
+
+    @Test func commandClickOnSelectedRowRemovesIt() {
+        let r = RowSelection.click(target: "b", current: ["a", "b", "c"], anchor: "a",
+                                   in: order, command: true, shift: false)
+        #expect(r.selection == ["a", "c"])
+        #expect(r.anchor == "a")   // anchor was elsewhere → preserved
+    }
+
+    @Test func commandClickRemovingTheAnchorClearsAnchor() {
+        let r = RowSelection.click(target: "a", current: ["a", "b"], anchor: "a",
+                                   in: order, command: true, shift: false)
+        #expect(r.selection == ["b"])
+        #expect(r.anchor == nil)   // removed the anchor itself
+        #expect(r.focus == nil)
+    }
+
+    @Test func shiftClickSelectsContiguousRangeFromAnchor() {
+        let r = RowSelection.click(target: "d", current: ["b"], anchor: "b",
+                                   in: order, command: false, shift: true)
+        #expect(r.selection == ["b", "c", "d"])
+        #expect(r.anchor == "b")   // anchor stays put
+        #expect(r.focus == "d")
+    }
+
+    @Test func shiftClickRangeWorksUpwardToo() {
+        let r = RowSelection.click(target: "a", current: ["c"], anchor: "c",
+                                   in: order, command: false, shift: true)
+        #expect(r.selection == ["a", "b", "c"])
+        #expect(r.anchor == "c")
+        #expect(r.focus == "a")
+    }
+
+    @Test func shiftClickWithoutAnchorFallsBackToPlain() {
+        let r = RowSelection.click(target: "d", current: ["b"], anchor: nil,
+                                   in: order, command: false, shift: true)
+        #expect(r.selection == ["d"])
+        #expect(r.anchor == "d")
+    }
+
+    @Test func commandTakesPrecedenceOverShift() {
+        // If both modifiers are reported, ⌘ (toggle) wins — never silently range.
+        let r = RowSelection.click(target: "c", current: ["c"], anchor: "a",
+                                   in: order, command: true, shift: true)
+        #expect(r.selection == [])   // toggled the only selected row off
+    }
 }

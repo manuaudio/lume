@@ -163,9 +163,14 @@ struct SidebarItemRow: View {
                 }
             }
             .opacity(section == .pinned && isHidden ? 0.45 : 1)
-            // Scope the row's combined a11y element to the file/folder line only,
-            // so the inline RowMetaView tag editor (when selected) stays operable.
-            .accessibilityElement(children: .combine)
+            // VoiceOver: name/role/state + an Expand/Collapse action.
+            // NOTE: do NOT wrap this in `.accessibilityElement(children: .combine)`.
+            // Inside `List(selection:)` that synthesizes a combined a11y element
+            // over the row content which HIJACKS single-click hit-testing — it
+            // silently broke click-to-select/open (double-click still worked
+            // because it goes through the explicit .onTapGesture below). These
+            // label/hint/action modifiers annotate the row's native selectable
+            // element and leave mouse selection intact.
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(isDirectory ? "Opens folder" : "Opens file")
             .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
@@ -199,6 +204,17 @@ struct SidebarItemRow: View {
                 model.selectedRowIDs = [SidebarRow(url: url, isDirectory: false, section: section).id]
                 model.selectedFile = url
             }
+        }
+        // Single click = select + activate (folder → expand inline; file → show
+        // content), honoring ⌘/⇧ for multi-select. Native List(selection:) wasn't
+        // delivering single clicks to these rows, so this restores the behavior
+        // explicitly. Registered AFTER the count:2 gesture so SwiftUI can
+        // disambiguate a double-click (drill) from a single click.
+        .onTapGesture {
+            model.clickRow(id: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
+                           isDirectory: isDirectory, url: url,
+                           command: NSEvent.modifierFlags.contains(.command),
+                           shift: NSEvent.modifierFlags.contains(.shift))
         }
         .contextMenu {
             RowMenu(url: url,

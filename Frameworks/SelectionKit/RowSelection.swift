@@ -3,11 +3,12 @@ import Foundation
 /// Pure, view-agnostic selection math over a flat, top-to-bottom ordered list
 /// of row ids (the visual order of the sidebar's currently-visible rows).
 ///
-/// Native `List(selection:)` already handles ⌘-click toggle and ⇧-click range
-/// for mouse input. These helpers cover the KEYBOARD behaviors (plain ↑/↓ move,
-/// ⇧↑/⇧↓ extend, ⌘A select all) where SwiftUI's multi-section, recursively-
-/// rendered List gives us no reliable built-in behavior, plus the anchor
-/// bookkeeping a contiguous keyboard range needs.
+/// These helpers cover both MOUSE clicks (`click`) and KEYBOARD behaviors
+/// (plain ↑/↓ move, ⇧↑/⇧↓ extend, ⌘A select all), plus the anchor bookkeeping a
+/// contiguous range needs. NOTE: native `List(selection:)` does NOT reliably
+/// deliver single clicks in this multi-section, recursively-rendered sidebar —
+/// the rows' double-click `.onTapGesture` shadows the List's own click handling,
+/// so a single click was dropped entirely. `click` restores that explicitly.
 public enum RowSelection {
 
     /// Move the focused row one step in `order` (down: +1, up: -1), replacing the
@@ -48,6 +49,43 @@ public enum RowSelection {
 
     /// The whole list as a selection (⌘A).
     public static func all(in order: [String]) -> Set<String> { Set(order) }
+
+    /// Resolve a mouse click on `target` into a new selection + anchor/focus.
+    /// - ⌘ (`command`): toggle `target`'s membership; the anchor follows an added
+    ///   row, and is cleared if the anchor itself was removed.
+    /// - ⇧ (`shift`) with a known `anchor`: select the contiguous run from the
+    ///   anchor to `target`, inclusive (Finder ⇧-click); `target` becomes focus.
+    /// - plain (no modifier): collapse to a single-row selection on `target`,
+    ///   which becomes the new anchor/focus. The caller activates that row
+    ///   (open file / expand folder).
+    /// A ⇧-click with no anchor (or an anchor absent from `order`) falls through
+    /// to plain behavior.
+    public static func click(target: String,
+                             current: Set<String>,
+                             anchor: String?,
+                             in order: [String],
+                             command: Bool,
+                             shift: Bool) -> (selection: Set<String>,
+                                              anchor: String?,
+                                              focus: String?) {
+        if command {
+            var next = current
+            if next.contains(target) {
+                next.remove(target)
+                let newAnchor = anchor == target ? nil : anchor
+                return (next, newAnchor, newAnchor)
+            }
+            next.insert(target)
+            return (next, target, target)
+        }
+        if shift, let anchor,
+           let a = order.firstIndex(of: anchor),
+           let b = order.firstIndex(of: target) {
+            let lo = min(a, b), hi = max(a, b)
+            return (Set(order[lo...hi]), anchor, target)
+        }
+        return ([target], target, target)
+    }
 
     /// Drop now-hidden FILE rows from a selection after a tag filter changes,
     /// mirroring `FileTreeView.visibleChildren`: directories stay (always

@@ -529,6 +529,27 @@ final class AppModel {
         selectedFile = row.url
     }
 
+    /// A mouse click on a sidebar row, honoring ⌘ (toggle) and ⇧ (contiguous
+    /// range) like Finder, and falling back to select-and-activate for a plain
+    /// click. This restores explicit single-click behavior: native
+    /// `List(selection:)` was NOT delivering single clicks to these rows (the
+    /// double-click `.onTapGesture` shadowed it), so a single click did nothing —
+    /// a regression. A plain click now sole-selects the row and activates it
+    /// (folder → toggle inline expand to reveal its children; file → show its
+    /// content), mirroring the original single-click design.
+    func clickRow(id rowID: String, isDirectory: Bool, url: URL,
+                  command: Bool, shift: Bool) {
+        let r = RowSelection.click(target: rowID, current: selectedRowIDs,
+                                   anchor: selectionAnchorID, in: orderedVisibleRowIDs,
+                                   command: command, shift: shift)
+        selectedRowIDs = r.selection
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
+        // Activate only on a plain click (no modifier): reveal the row's content.
+        guard !command, !shift else { return }
+        if isDirectory { toggleExpanded(url) } else { selectedFile = url }
+    }
+
     /// ⌘A — select every visible row. Anchor on the current sole selection (so a
     /// following ⇧↑/⇧↓ extends from where the user was, like Finder) and fall back
     /// to the first row when there was no single prior selection.
