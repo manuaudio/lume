@@ -195,17 +195,6 @@ struct SidebarItemRow: View {
                 model.selectedFile = url
             }
         }
-        // Single click = select + activate (folder → expand inline; file → show
-        // content), honoring ⌘/⇧ for multi-select. Native List(selection:) wasn't
-        // delivering single clicks to these rows, so this restores the behavior
-        // explicitly. Registered AFTER the count:2 gesture so SwiftUI can
-        // disambiguate a double-click (drill) from a single click.
-        .onTapGesture {
-            model.clickRow(id: SidebarRow(url: url, isDirectory: isDirectory, section: section).id,
-                           isDirectory: isDirectory, url: url,
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
-        }
         .contextMenu {
             RowMenu(url: url,
                     isDirectory: isDirectory,

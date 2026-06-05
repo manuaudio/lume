@@ -534,31 +534,6 @@ final class AppModel {
         selectedFile = row.url
     }
 
-    /// A mouse click on a sidebar row, honoring ⌘ (toggle) and ⇧ (contiguous
-    /// range) like Finder, and falling back to select-and-activate for a plain
-    /// click. This restores explicit single-click behavior: native
-    /// `List(selection:)` was NOT delivering single clicks to these rows (the
-    /// double-click `.onTapGesture` shadowed it), so a single click did nothing —
-    /// a regression. A plain click now sole-selects the row and activates it
-    /// (folder → select only (double-click drills in); file → show its content),
-    /// mirroring the original single-click design.
-    func clickRow(id rowID: String, isDirectory: Bool, url: URL,
-                  command: Bool, shift: Bool) {
-        let r = RowSelection.click(target: rowID, current: selectedRowIDs,
-                                   anchor: selectionAnchorID, in: orderedVisibleRowIDs,
-                                   command: command, shift: shift)
-        selectedRowIDs = r.selection
-        selectionAnchorID = r.anchor
-        selectionFocusID = r.focus
-        // Activate only on a plain click (no modifier). GROUPS redesign: a single
-        // click on a real FOLDER (pinned or browser) now ONLY selects — it no
-        // longer toggles inline expansion (double-click drills into the browser
-        // instead). A single click on a FILE still opens it. Group headers /
-        // group files route through their own gestures in GroupsSection, not here.
-        guard !command, !shift else { return }
-        if !isDirectory { selectedFile = url }
-    }
-
     /// ⌘A — select every visible row. Anchor on the current sole selection (so a
     /// following ⇧↑/⇧↓ extends from where the user was, like Finder) and fall back
     /// to the first row when there was no single prior selection.

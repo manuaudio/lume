@@ -87,16 +87,6 @@ struct GroupsSection: View {
         }
         // Double-click a group → expand/collapse (no disk folder to drill into).
         .onTapGesture(count: 2) { model.toggleGroupExpanded(name) }
-        // Single-click → SELECT ONLY (honoring ⌘/⇧). A group header has no file to
-        // open: passing isDirectory:true routes through clickRow's directory branch
-        // (select-only, never sets selectedFile), so the bogus url below is never
-        // opened — it exists solely to satisfy the signature.
-        .onTapGesture {
-            model.clickRow(id: id, isDirectory: true,
-                           url: URL(fileURLWithPath: "/"),
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
-        }
         // Drag a file onto this group → tag it with this group's name.
         .dropDestination(for: URL.self) { urls, _ in
             model.tag(urls, withTagNamed: name)
@@ -155,14 +145,6 @@ struct GroupsSection: View {
         .onTapGesture(count: 2) {
             model.selectedRowIDs = [id]
             model.selectedFile = url
-        }
-        // Single-click → select + open (honoring ⌘/⇧). clickRow decodes the
-        // groupfile id to this real file URL via SidebarRow.decode, and because
-        // isDirectory:false it sets selectedFile through the normal path.
-        .onTapGesture {
-            model.clickRow(id: id, isDirectory: false, url: url,
-                           command: NSEvent.modifierFlags.contains(.command),
-                           shift: NSEvent.modifierFlags.contains(.shift))
         }
         .contextMenu {
             Button("Open", systemImage: "doc.text") {
