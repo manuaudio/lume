@@ -107,6 +107,10 @@ final class AppModel {
     /// Published by `SidebarView` each render so keyboard range math (which has
     /// no view tree) can resolve neighbors. Not observed (read on key events).
     @ObservationIgnored var orderedVisibleRowIDs: [String] = []
+    /// The favorites+browser portion of the flat visible order, cached so a
+    /// GROUPS toggle (cheap, cache-only) doesn't trigger the expensive disk-tree
+    /// walk. Recomputed only when tree structure/visibility changes.
+    @ObservationIgnored var treeRowIDs: [String] = []
     /// True only while ⌃ (Control) is held — drives the transient path bar.
     var pathPeek = false
     /// Drives the multi-selection "Edit Tags…" sheet (see MultiTagSheet).
