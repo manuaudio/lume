@@ -234,6 +234,15 @@ public final class LibraryStore {
         try? context.save()
     }
 
+    /// Remove ONE tag from ONE file (the GROUPS "Remove from {group}" action). The
+    /// file stays on disk and keeps every other tag; the tag persists even if this
+    /// was its last file (empty groups are valid — no auto-prune).
+    public func removeTag(named name: String, fromPath path: String) {
+        guard let meta = meta(for: path) else { return }
+        meta.tags.removeAll { $0.name == name }
+        try? context.save()
+    }
+
     /// Delete a tag outright: detach it from every file it tags, then remove it.
     public func deleteTag(named name: String) {
         guard let t = existingTag(named: name) else { return }

@@ -41,3 +41,38 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     store.createEmptyTag(named: "    ")     // blank → ignored
     #expect(store.allTags().map(\.name) == ["spaced"])
 }
+
+@MainActor @Test func removeTagFromPathLeavesOtherTagsIntact() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["alpha", "beta"])
+    store.removeTag(named: "alpha", fromPath: "/a.md")
+
+    // The file keeps "beta"; only "alpha" was removed from it.
+    #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["beta"])
+    // "alpha" no longer carries this file.
+    #expect(store.files(taggedWith: "alpha").isEmpty)
+}
+
+@MainActor @Test func removeTagDoesNotPruneTheNowEmptyGroup() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["solo"])
+    store.removeTag(named: "solo", fromPath: "/a.md")
+
+    // The tag is now empty but MUST persist (empty groups are valid).
+    #expect(store.allTags().map(\.name) == ["solo"])
+    #expect(store.files(taggedWith: "solo").isEmpty)
+}
+
+@MainActor @Test func removeTagIsSafeForUnknownTagOrPath() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["x"])
+    store.removeTag(named: "ghost", fromPath: "/a.md")  // unknown tag
+    store.removeTag(named: "x", fromPath: "/missing.md") // unknown path
+    #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["x"])
+}
