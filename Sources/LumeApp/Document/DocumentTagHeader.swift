@@ -65,6 +65,7 @@ struct DocumentTagHeader: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Notes")
+                .accessibilityLabel("Notes")
                 .popover(isPresented: $showingNotes, arrowEdge: .bottom) {
                     DocumentNotesPopover(url: url)
                 }
@@ -76,6 +77,7 @@ struct DocumentTagHeader: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Hide tag header")
+                .accessibilityLabel("Hide tag header")
             }
         }
         .documentHeaderBar()

@@ -411,6 +411,11 @@ struct SidebarView: View {
                                         set: { model.showPinnedHidden = $0 }),
                           help: "Show items hidden from Favorites")
         }
+        // Drag a file/folder from the browser onto FAVORITES to pin it.
+        .dropDestination(for: URL.self) { urls, _ in
+            model.pinDropped(urls)
+            return true
+        }
     }
 
     // MARK: Tags (clickable filters)

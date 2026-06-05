@@ -182,15 +182,18 @@ private struct ConfigLeafRow: View {
             TextField("", text: Binding(get: { s }, set: { onChange(.string($0)) }))
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 280)
+                .accessibilityLabel(label)
         case let .number(n):
             TextField("", text: Binding(get: { n }, set: { onChange(.number($0)) }))
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 140)
                 .font(.system(.body, design: .monospaced))
+                .accessibilityLabel(label)
         case let .bool(b):
             Toggle("", isOn: Binding(get: { b }, set: { onChange(.bool($0)) }))
                 .labelsHidden()
+                .accessibilityLabel(label)
         case .null:
             Text("null").foregroundStyle(.tertiary).italic()
         case .object, .array:

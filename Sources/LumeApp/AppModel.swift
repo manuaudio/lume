@@ -436,6 +436,15 @@ final class AppModel {
         toggleFavorite(url, isDirectory: isDirectory)
     }
 
+    /// Pin every dropped URL that isn't already a favorite (drag-from-browser to
+    /// the FAVORITES region). Resolves each URL's directory-ness from disk.
+    func pinDropped(_ urls: [URL]) {
+        for url in urls where !isPinned(url) {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            togglePin(url, isDirectory: isDir)
+        }
+    }
+
     /// Open a folder (and optionally select a file) from environment variables,
     /// so Lume can be launched pointed at a location:
     ///   LUME_OPEN_FOLDER=/path/to/dir  LUME_OPEN_FILE=/path/to/dir/file.md

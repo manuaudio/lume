@@ -18,7 +18,8 @@ struct ContentView: View {
             DocumentSurfaceView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle(model.rootFolder?.lastPathComponent ?? "Lume")
+        .navigationTitle(windowTitle)
+        .navigationSubtitle(subtitle)
         .focusedValue(\.appModel, model)
         .toolbar {
             ToolbarItemGroup {
@@ -65,6 +66,20 @@ struct ContentView: View {
         .onChange(of: model.selectedFile) { _, _ in
             refreshFavoriteState()
         }
+    }
+
+    /// Title-bar title: the open document's name, else the browse-root folder.
+    private var windowTitle: String {
+        if let file = model.selectedFile { return file.lastPathComponent }
+        return model.browseRoot?.lastPathComponent ?? "Lume"
+    }
+
+    /// Title-bar subtitle: the open file's folder (or the browse root), shown
+    /// with a leading ~ like Finder's path bar.
+    private var subtitle: String {
+        let url = model.selectedFile?.deletingLastPathComponent() ?? model.browseRoot
+        guard let path = url?.path else { return "" }
+        return (path as NSString).abbreviatingWithTildeInPath
     }
 
     // MARK: Actions
