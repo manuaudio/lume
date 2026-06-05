@@ -75,11 +75,16 @@ struct FileTreeView: View {
         // affects the `visibleChildren` filter, which re-evaluates reactively
         // via @Observable tracking — no new filesystem enumeration required.
         .onChange(of: model.showBrowserHidden) { _, _ in reload() }
-        // FSEvents (Finder/other-app edits) bump the cache revision; re-read so
-        // external create/rename/delete refresh the tree. The cache returns the
-        // freshly-invalidated directory's contents (a single disk read), not the
-        // whole tree.
-        .onChange(of: model.fileSystemRevision) { _, _ in reload() }
+        // FSEvents (Finder/other-app edits) bump the cache revision. Re-read ONLY
+        // when THIS directory was the one invalidated: an invalidated dir is a
+        // cache miss, an untouched dir is still cached. Without this gate a single
+        // edit anywhere (including the editor's own autosave) re-ran reload() on
+        // every mounted FileTreeView in the expanded tree.
+        .onChange(of: model.fileSystemRevision) { _, _ in
+            if !model.isDirectoryCached(parent, includeHidden: Self.includeHidden(section: section, model: model)) {
+                reload()
+            }
+        }
     }
 
     private var visibleChildren: [FileNode] {

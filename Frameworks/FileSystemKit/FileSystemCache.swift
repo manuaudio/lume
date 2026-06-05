@@ -43,6 +43,13 @@ public final class FileSystemCache {
         return nodes
     }
 
+    /// Whether `path`'s enumeration is currently cached. After an FSEvents tick
+    /// only the invalidated directories are cache MISSES, so observers can use
+    /// this to re-read just the changed directory instead of every mounted view.
+    public func isCached(path: String, includeHidden: Bool) -> Bool {
+        cache[key(path, includeHidden)] != nil
+    }
+
     /// Drop both the hidden and non-hidden cache entries for `path` and bump
     /// `revision` so observers re-read it.
     public func invalidate(path: String) {

@@ -195,6 +195,14 @@ final class AppModel {
         cache.children(of: url, includeHidden: includeHidden)
     }
 
+    /// Whether `url`'s children are still cached. A directory drops out of the
+    /// cache only when FSEvents reports it changed, so a mounted `FileTreeView`
+    /// uses this to skip re-reading itself on filesystem ticks that didn't touch
+    /// it — one edit no longer re-runs every view in the expanded tree.
+    func isDirectoryCached(_ url: URL, includeHidden: Bool) -> Bool {
+        cache.isCached(path: url.path, includeHidden: includeHidden)
+    }
+
     /// (Re)start the filesystem watcher on the current `browseRoot`. Stops any
     /// previous watcher first so only one stream is ever live. FSEvents change
     /// events invalidate the affected directories in the cache (bumping its
@@ -454,8 +462,28 @@ final class AppModel {
         }
     }
 
+    /// Pending debounced document writes, keyed by path. Keyed (not a single
+    /// token) so switching files never cancels another file's in-flight save.
+    @ObservationIgnored private var pendingWrites: [String: Task<Void, Never>] = [:]
+
+    /// Persist editor text. The CodeMirror change event is already JS-debounced;
+    /// here we additionally coalesce per-file and perform the disk write OFF the
+    /// main actor, so typing never blocks the UI on atomic file I/O.
     func write(_ text: String, to url: URL) {
-        try? files.write(text, to: url)
+        let path = url.path
+        pendingWrites[path]?.cancel()
+        pendingWrites[path] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
+            await Self.persist(text, to: url)
+            self?.pendingWrites[path] = nil
+        }
+    }
+
+    /// The actual disk write, off the main actor (nonisolated async runs on the
+    /// cooperative pool). Atomic so a crash mid-write can't truncate the file.
+    private nonisolated static func persist(_ text: String, to url: URL) async {
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     // MARK: Selected-row helpers (for keyboard commands)
