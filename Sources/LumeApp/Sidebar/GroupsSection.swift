@@ -56,18 +56,23 @@ struct GroupsSection: View {
     // MARK: Group header row
 
     @ViewBuilder private func groupHeaderRow(_ tag: Tag) -> some View {
-        let id: String = GroupRowID.header(tagName: tag.name)
-        let isExpanded = model.expandedGroups.contains(tag.name)
-        let count = model.sortedGroupFilePaths(forTagNamed: tag.name).count
+        // Capture the tag's identity into locals BEFORE building long-lived
+        // context-menu closures: a deleted/renamed `tag` @Model object must not be
+        // dereferenced from a closure that outlives it.
+        let name = tag.name
+        let colorIndex = tag.colorIndex
+        let id = GroupRowID.headerID(tagName: name)
+        let isExpanded = model.expandedGroups.contains(name)
+        let count = model.sortedGroupFilePaths(forTagNamed: name).count
         HStack(spacing: 6) {
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                 .font(.caption2).foregroundStyle(.secondary)
                 .frame(width: 12)
-                .onTapGesture { model.toggleGroupExpanded(tag.name) }
+                .onTapGesture { model.toggleGroupExpanded(name) }
                 .accessibilityHidden(true)
             Image(systemName: "tag.fill")
-                .foregroundStyle(tagColor(tag.colorIndex))
-            Text(tag.name).lineLimit(1)
+                .foregroundStyle(tagColor(colorIndex))
+            Text(name).lineLimit(1)
             Spacer(minLength: 0)
             Text("\(count)")
                 .font(.caption.monospacedDigit())
@@ -75,45 +80,46 @@ struct GroupsSection: View {
         }
         .contentShape(Rectangle())
         .tag(id)
-        .accessibilityLabel("\(tag.name), group, \(count) file\(count == 1 ? "" : "s")")
+        .accessibilityLabel("\(name), group, \(count) file\(count == 1 ? "" : "s")")
         .accessibilityAddTraits(model.selectedRowIDs.contains(id) ? .isSelected : [])
         .accessibilityAction(named: isExpanded ? "Collapse" : "Expand") {
-            model.toggleGroupExpanded(tag.name)
+            model.toggleGroupExpanded(name)
         }
         // Double-click a group → expand/collapse (no disk folder to drill into).
-        .onTapGesture(count: 2) { model.toggleGroupExpanded(tag.name) }
-        // Single-click → select only (honoring ⌘/⇧). A group header isn't a file,
-        // so clickRow won't open anything; isDirectory:false keeps it from being
-        // treated as a real folder.
+        .onTapGesture(count: 2) { model.toggleGroupExpanded(name) }
+        // Single-click → SELECT ONLY (honoring ⌘/⇧). A group header has no file to
+        // open: passing isDirectory:true routes through clickRow's directory branch
+        // (select-only, never sets selectedFile), so the bogus url below is never
+        // opened — it exists solely to satisfy the signature.
         .onTapGesture {
-            model.clickRow(id: id, isDirectory: false,
+            model.clickRow(id: id, isDirectory: true,
                            url: URL(fileURLWithPath: "/"),
                            command: NSEvent.modifierFlags.contains(.command),
                            shift: NSEvent.modifierFlags.contains(.shift))
         }
         // Drag a file onto this group → tag it with this group's name.
         .dropDestination(for: URL.self) { urls, _ in
-            model.tag(urls, withTagNamed: tag.name)
+            model.tag(urls, withTagNamed: name)
             return true
         }
         .contextMenu {
             Button("Rename…", systemImage: "pencil") {
-                renamingTag = TagRef(name: tag.name)
+                renamingTag = TagRef(name: name)
             }
             Menu("Recolor") {
                 ForEach(0..<TagPalette.count, id: \.self) { i in
                     Button(TagPalette.swatch(at: i).name) {
-                        model.store?.recolorTag(named: tag.name, colorIndex: i)
+                        model.store?.recolorTag(named: name, colorIndex: i)
                     }
                 }
             }
             Button("Copy Paths", systemImage: "doc.on.clipboard") {
-                model.copyPaths(forGroupNamed: tag.name)
+                model.copyPaths(forGroupNamed: name)
             }
             Divider()
             Button("Delete Group", systemImage: "trash", role: .destructive) {
-                model.expandedGroups.remove(tag.name)
-                model.store?.deleteTag(named: tag.name)
+                model.store?.deleteTag(named: name)
+                model.handleGroupDeleted(name)
             }
         }
     }
@@ -122,7 +128,7 @@ struct GroupsSection: View {
 
     @ViewBuilder private func groupFileRow(tagName: String, path: String) -> some View {
         let url = URL(fileURLWithPath: path)
-        let id: String = GroupRowID.file(tagName: tagName, path: path)
+        let id = GroupRowID.fileID(tagName: tagName, path: path)
         let name = model.displayNames[path] ?? url.lastPathComponent
         HStack(spacing: 6) {
             Spacer().frame(width: 12)   // align under the disclosure column
@@ -143,6 +149,7 @@ struct GroupsSection: View {
         .contentShape(Rectangle())
         .tag(id)
         .accessibilityLabel("\(name), in group \(tagName)")
+        .accessibilityHint("Opens file")
         .accessibilityAddTraits(model.selectedRowIDs.contains(id) ? .isSelected : [])
         // Double-click → open the file in the document pane.
         .onTapGesture(count: 2) {
@@ -170,6 +177,7 @@ struct GroupsSection: View {
             }
             Button("Remove from “\(tagName)”", systemImage: "tag.slash") {
                 model.removeFromGroup(path: path, tagNamed: tagName)
+                model.handleRemovedFromGroup(path: path, tagNamed: tagName)
             }
             Divider()
             Button("Reveal in Finder", systemImage: "magnifyingglass") {

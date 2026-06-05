@@ -483,6 +483,13 @@ final class AppModel {
         return sections == ["pinned"] ? .pinned : .browser
     }
 
+    /// True when at least one selected row is a REAL file/folder (decodable via
+    /// `SidebarRow`). Group header/file rows decode to nil here, so an all-group
+    /// selection is false — used to suppress Pin/Hide, which would no-op on it.
+    var selectionHasRealItems: Bool {
+        selectedRowIDs.contains { SidebarRow.decode($0) != nil }
+    }
+
     /// True when every selected path is already pinned (drives Pin vs Unpin).
     var selectionIsAllPinned: Bool {
         let urls = selectedURLs
@@ -641,6 +648,11 @@ final class AppModel {
     /// visible in the tree (Finder's Left-arrow traversal). Returns whether it
     /// moved, so the caller can fall through to `.ignored` at the root.
     func selectParentRow(ofRowID id: String) -> Bool {
+        // GROUP ids (`group|g|name`, `groupfile|f|name|path`) don't share the
+        // `section|d-or-f|path` grammar — splitting them positionally yields a
+        // bogus "path". A group header has no parent row; a group file has no
+        // parent-folder row in the GROUPS region. Skip both.
+        if GroupRowID.decode(id) != nil { return false }
         let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3 else { return false }
         let section = String(parts[0])
@@ -677,15 +689,30 @@ final class AppModel {
         let needle = prefix.lowercased()
         guard !needle.isEmpty else { return }
         for id in orderedVisibleRowIDs {
-            let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3 else { continue }
-            let path = String(parts[2])
-            let name = (displayNames[path] ?? (path as NSString).lastPathComponent).lowercased()
+            // Resolve each row's typeahead name and (for files) its openable path,
+            // handling the GROUP id grammar separately from the positional
+            // `section|d-or-f|path` grammar so a `groupfile|f|tag|/path` id never
+            // gets mis-split into a bogus path.
+            let name: String
+            var openPath: String?
+            switch GroupRowID.decode(id) {
+            case .header(let tagName):
+                name = tagName.lowercased()            // header: match the tag name, never open
+            case .file(_, let path):
+                name = (displayNames[path] ?? (path as NSString).lastPathComponent).lowercased()
+                openPath = path
+            case nil:
+                let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count == 3 else { continue }
+                let path = String(parts[2])
+                name = (displayNames[path] ?? (path as NSString).lastPathComponent).lowercased()
+                if parts[1] == "f" { openPath = path }
+            }
             guard name.hasPrefix(needle) else { continue }
             selectedRowIDs = [id]
             selectionAnchorID = id
             selectionFocusID = id
-            if parts[1] == "f" { selectedFile = URL(fileURLWithPath: path) }
+            if let openPath { selectedFile = URL(fileURLWithPath: openPath) }
             return
         }
     }
@@ -783,13 +810,63 @@ final class AppModel {
         else { expandedGroups.insert(tagName) }
     }
 
+    /// Group membership cache: tag name → its file paths, already sorted by
+    /// effective display name. Rebuilt ONCE by `MetaIndexLoader` from the
+    /// all-metadata @Query (which observes FileMeta relationship changes reliably),
+    /// so renders/keyboard-order never hit a per-tag SwiftData fetch+sort.
+    var groupFilePaths: [String: [String]] = [:]
+
+    /// Replace the group-membership cache (called by `MetaIndexLoader`).
+    func updateGroupFilePaths(_ map: [String: [String]]) {
+        if groupFilePaths != map { groupFilePaths = map }
+    }
+
     /// The file paths in a group, sorted by effective display name (override →
     /// filename), path tie-broken. Drives both the rendered rows and the flat
-    /// keyboard order, so they always agree.
+    /// keyboard order, so they always agree. Cache-backed (see `groupFilePaths`) —
+    /// no per-render SwiftData fetch.
     func sortedGroupFilePaths(forTagNamed name: String) -> [String] {
-        guard let store else { return [] }
-        let paths = store.files(taggedWith: name).map(\.path)
-        return GroupSort.sorted(paths) { self.displayNames[$0] }
+        groupFilePaths[name] ?? []
+    }
+
+    /// Revalidate selection + expanded state after a group is DELETED. The open
+    /// document (`selectedFile`) is left alone — it's a real file still on disk.
+    func handleGroupDeleted(_ name: String) {
+        let r = GroupSelection.afterDelete(name: name,
+                                           selection: selectedRowIDs,
+                                           anchor: selectionAnchorID,
+                                           focus: selectionFocusID,
+                                           expandedGroups: expandedGroups)
+        selectedRowIDs = r.selection
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
+        expandedGroups = r.expandedGroups
+    }
+
+    /// Revalidate selection + expanded state after a group is RENAMED `old`→`new`
+    /// (possibly merged into an existing `new`), rewriting embedded ids so the
+    /// selection and the renamed group's expansion survive.
+    func handleGroupRenamed(from old: String, to new: String) {
+        let r = GroupSelection.afterRename(old: old, new: new,
+                                           selection: selectedRowIDs,
+                                           anchor: selectionAnchorID,
+                                           focus: selectionFocusID,
+                                           expandedGroups: expandedGroups)
+        selectedRowIDs = r.selection
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
+        expandedGroups = r.expandedGroups
+    }
+
+    /// Revalidate selection after ONE file is REMOVED from ONE group.
+    func handleRemovedFromGroup(path: String, tagNamed name: String) {
+        let r = GroupSelection.afterRemove(path: path, name: name,
+                                           selection: selectedRowIDs,
+                                           anchor: selectionAnchorID,
+                                           focus: selectionFocusID)
+        selectedRowIDs = r.selection
+        selectionAnchorID = r.anchor
+        selectionFocusID = r.focus
     }
 
     /// Create a new, empty, persistent group (the ＋ New Group affordance) and

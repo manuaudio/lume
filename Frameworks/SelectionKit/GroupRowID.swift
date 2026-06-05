@@ -17,12 +17,12 @@ public enum GroupRowID: Equatable, Sendable {
     case file(tagName: String, path: String)
 
     /// Encode a group-header id.
-    public static func header(tagName: String) -> String {
+    public static func headerID(tagName: String) -> String {
         "group|g|\(tagName)"
     }
 
     /// Encode a file-under-group id.
-    public static func file(tagName: String, path: String) -> String {
+    public static func fileID(tagName: String, path: String) -> String {
         "groupfile|f|\(tagName)|\(path)"
     }
 

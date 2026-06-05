@@ -53,10 +53,10 @@ struct SidebarView: View {
         // OPEN FOLDER). A group header row, then — when expanded — one file row
         // per tagged file in sorted order.
         for tag in tags {
-            ids.append(GroupRowID.header(tagName: tag.name))
+            ids.append(GroupRowID.headerID(tagName: tag.name))
             guard model.expandedGroups.contains(tag.name) else { continue }
             for path in model.sortedGroupFilePaths(forTagNamed: tag.name) {
-                ids.append(GroupRowID.file(tagName: tag.name, path: path))
+                ids.append(GroupRowID.fileID(tagName: tag.name, path: path))
             }
         }
 
@@ -88,8 +88,9 @@ struct SidebarView: View {
     /// lockstep with the inputs read by `computeOrderedRowIDs` / `visibleChildren`:
     /// expanded set, expanded GROUPS, the tag names, browse root, the
     /// visible-favorites list (favorites order + pinned-hidden reveal + hidden
-    /// paths), files-only, the browse text filter, the browser-hidden reveal, and
-    /// the display names (so a group's file order re-walks on a name change).
+    /// paths), files-only, the browse text filter, the browser-hidden reveal, the
+    /// display names (so a group's file order re-walks on a name change), and the
+    /// group membership cache (so adding/removing a file to/from a group re-walks).
     private var rowOrderSignature: RowOrderSignature {
         RowOrderSignature(
             expanded: model.expandedPaths,
@@ -102,7 +103,8 @@ struct SidebarView: View {
             showBrowserHidden: model.showBrowserHidden,
             showPinnedHidden: model.showPinnedHidden,
             hiddenPaths: model.hiddenPaths,
-            displayNames: model.displayNames
+            displayNames: model.displayNames,
+            groupFilePaths: model.groupFilePaths
         )
     }
 
@@ -423,21 +425,36 @@ struct SidebarView: View {
 struct MetaIndexLoader: View {
     let model: AppModel
     @Query private var allMeta: [FileMeta]
+    // Observe the tag list too, so EMPTY groups (tags with no files — invisible
+    // when iterating FileMeta) still get a `[name: []]` entry, and so a tag
+    // create/rename/delete refreshes the membership cache.
+    @Query(sort: \Tag.name) private var allTags: [Tag]
 
     var body: some View {
         Color.clear
             .onAppear { push() }
             .onChange(of: allMeta) { _, _ in push() }
+            .onChange(of: allTags.map(\.name)) { _, _ in push() }
     }
 
     private func push() {
         var names: [String: String] = [:]
         var hidden: Set<String> = []
+        // Seed every existing tag with an empty list so empty groups still render.
+        var groups: [String: [String]] = [:]
+        for t in allTags { groups[t.name] = [] }
         for m in allMeta {
             if !m.displayName.isEmpty { names[m.path] = m.displayName }
             if m.hidden { hidden.insert(m.path) }
+            for tag in m.tags { groups[tag.name, default: []].append(m.path) }
         }
         model.updateMetaIndex(displayNames: names, hiddenPaths: hidden)
+        // Sort each group by effective display name (reusing the names just built),
+        // matching `sortedGroupFilePaths`' previous on-the-fly ordering.
+        for (name, paths) in groups {
+            groups[name] = GroupSort.sorted(paths) { names[$0] }
+        }
+        model.updateGroupFilePaths(groups)
     }
 }
 
@@ -461,6 +478,9 @@ private struct RowOrderSignature: Equatable {
     // Folded in so a group's file order re-walks when a display name changes
     // (group rows sort by effective display name).
     let displayNames: [String: String]
+    // Folded in so the group rows re-walk when membership changes (a file is
+    // tagged/untagged, or a group emptied) even if no display name changed.
+    let groupFilePaths: [String: [String]]
 }
 
 // MARK: - SectionHeader
