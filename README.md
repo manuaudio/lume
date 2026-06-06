@@ -2,118 +2,66 @@
 
 **A fast, native macOS workspace for your Markdown, notes, code, and config files.**
 
-Lume turns any folder on your Mac into a browsable, taggable document workspace. Open a directory, get a Finder-like sidebar, and edit Markdown in a clean editor — while PDFs, images, code, `.env`, and structured config files (YAML / TOML / JSON) each open in a viewer built for them. Organize across folders with colorful tags that behave like virtual folders, pin what matters, and hide what doesn't.
-
-Built entirely in Swift 6 + SwiftUI as a native `.app` — no Electron, no web wrapper.
+Point Lume at any folder and get a responsive, Finder-like sidebar plus a native
+editor — built entirely in Swift 6 + SwiftUI + AppKit as a real `.app`. No Electron,
+no web wrapper, no JavaScript editor. It opens files in milliseconds and takes your
+clicks the instant the window appears.
 
 > **Platform:** macOS 14 (Sonoma) or later · Apple Silicon & Intel
+> **Status:** early rebuild — the *responsive core* is in place (see Roadmap).
 
 ---
 
-## Highlights
+## What works today
 
-- **📂 Open any folder as a workspace** — point Lume at a directory and browse it in a responsive, native sidebar with multi-select, Copy Paths, and Finder-style keyboard navigation.
-- **✍️ Markdown editor** — a focused CodeMirror-based editor for `.md`, bundled and offline (no network, no telemetry).
-- **🗂️ GROUPS — tags as virtual folders** — tag files anywhere in the tree and they appear as expandable groups in the sidebar. Drag to tag, create new groups, and jump across folders instantly.
-- **🎨 Colorful tags** — color-indexed, renamable (rename-to-merge), and recolorable, with a quick token field for adding tags inline.
-- **📌 Pin & hide** — curate a workspace by pinning the files you live in and hiding the noise, with separate pinned/browser visibility and a hold-⌃ peek at hidden items.
-- **🧰 The right viewer for every file** — Markdown, source code, `.env` (structured editor), YAML/TOML/JSON config (structured editor with a raw toggle), PDF, images, HTML, plus a Quick Look fallback for everything else.
-- **🏷️ Display names** — give files friendlier names in the UI without renaming them on disk.
-- **↩️ File management with Undo** — create, rename, move, and delete files from inside the app, with undo support and drag-to-pin / drag-to-tag.
-- **⚡ Built for speed** — native single-click selection (no tap delay), constant-cost sidebar rendering, and off-main-thread file work so the UI stays responsive even in large trees.
-
----
-
-## Install
-
-Lume ships as a self-contained `.app`. You build it once and it installs to `/Applications`.
-
-### Requirements
-
-- macOS 14+
-- [Xcode](https://developer.apple.com/xcode/) (provides the Swift 6 toolchain used by the build)
-
-### Build & install
-
-```bash
-git clone https://github.com/manuaudio/lume.git
-cd lume
-./tools/build-app.sh --run
-```
-
-That script does a release build, assembles `dist/Lume.app` with its icon, installs a copy to `/Applications` (or `~/Applications` if that isn't writable), registers it with Launchpad/Spotlight, and — with `--run` — launches it.
-
-After the first build you can open Lume from Launchpad, Spotlight, or your Applications folder like any other app.
-
-> **Note:** `build-app.sh` is the only supported way to run Lume as a real app. The bare `swift build` binary has no bundle identity, icon, or resource bundle and will trap at launch.
-
-If Xcode isn't at the default path, point the build at your toolchain:
-
-```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./tools/build-app.sh --run
-```
-
----
-
-## Usage
-
-1. Launch Lume and choose **Open Folder** (or use the empty-state button).
-2. Browse the folder in the sidebar; click a file to open it in the center pane.
-3. Select one or more files and add tags — they'll show up under **GROUPS** as virtual folders you can expand and navigate.
-4. **Pin** the files you want at the top; **hide** the ones you don't. Hold **⌃** to peek at hidden items.
-5. Edit Markdown directly; PDFs, images, code, and config files open in their dedicated viewers.
-
-Your tags, pins, display names, and favorites are stored locally via SwiftData and persist across launches.
-
----
+- **📂 Open any folder as a workspace** — choose a directory (⌘O) and browse it in a
+  native sidebar. Directories expand lazily, so opening a large tree never stalls.
+- **✍️ Native TextKit 2 editor** — open, edit, and save text files. Markdown gets
+  lightweight live highlighting (headings, **bold**, _emphasis_, `code`, links). A
+  selected file opens focused and ready to type.
+- **💾 Save & find** — ⌘S saves (atomically, off the main thread); the editor provides
+  native Find (⌘F) and Undo (⌘Z).
+- **🧭 Stays out of your way** — non-text files offer "Open in Default App"; your last
+  folder and window position are restored on relaunch.
+- **⚡ Snappy by construction** — file reads happen off the main thread and the editor
+  is fully native, so the UI never blocks on disk or rendering.
 
 ## Architecture
 
-Lume is a Swift Package built from small, app-agnostic frameworks behind a thin SwiftUI app target:
+| Module    | Responsibility                                                              |
+|-----------|-----------------------------------------------------------------------------|
+| `LumeKit` | UI-free, unit-tested domain logic: folder scanning, file classification, document load/save, markdown tokenizing. |
+| `Lume`    | Thin SwiftUI/AppKit shell: window, sidebar, TextKit 2 editor, view-model.   |
 
-| Module | Responsibility |
-| --- | --- |
-| `FileSystemKit` | Filesystem traversal, file nodes, visibility filtering |
-| `LibraryKit` | Tags, groups, pins, display names, the document library model |
-| `DocumentKit` | File-kind routing and document concerns |
-| `ConfigKit` | Structured config parsing/editing (YAML via [Yams](https://github.com/jpsim/Yams), TOML via [TOMLKit](https://github.com/LebJe/TOMLKit)) |
-| `SelectionKit` | Multi-selection model and revalidation |
-| `LumeUI` | Reusable SwiftUI components (tag chips, tag field, flow layout) |
-| `LumeCore` | Umbrella facade re-exporting the kits |
-| `LumeApp` | The macOS app: sidebar, document surfaces, commands, services |
+The project is generated from `project.yml` via [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+into a standard Xcode app target — which is what gives Lume normal macOS window
+activation and event handling out of the box.
 
-The Markdown editor lives in [`web/`](web/) (a small CodeMirror 6 bundle, built with esbuild). Its compiled output is committed under `Sources/LumeApp/Resources/web/`, so a normal app build needs no Node toolchain. To rebuild the editor:
+## Build & run
 
-```bash
-cd web
-npm install
-node build.mjs   # writes dist/editor.bundle.js
+```sh
+brew install xcodegen          # one-time
+xcodegen generate              # project.yml -> Lume.xcodeproj
+xcodebuild -project Lume.xcodeproj -scheme Lume -configuration Debug -derivedDataPath build build
+open build/Build/Products/Debug/Lume.app
 ```
 
----
+Run the tests:
 
-## Development
-
-Run the test suite (146+ unit tests across the kits):
-
-```bash
-swift test
+```sh
+xcodebuild test -project Lume.xcodeproj -scheme Lume -destination 'platform=macOS' -derivedDataPath build
 ```
 
-Build a debug binary for quick iteration (UI experiments only — use `build-app.sh` for the real app):
+## Roadmap
 
-```bash
-swift build
-```
+Lume is being rebuilt from a clean native foundation. Planned increments, each
+returning a feature set the earlier prototype had:
 
-Optional sandboxed build (opt-in; see the notes in `tools/build-app.sh`):
-
-```bash
-./tools/build-app.sh --sandbox
-```
-
----
+- Tags + **GROUPS** (tags as virtual folders), pinning, display names, colorful tags
+- Dedicated viewers: PDF, image, source code, `.env`, YAML/TOML/JSON config, HTML
+- File management (create / rename / move / delete) with Undo, drag-to-tag / drag-to-pin
+- App Sandbox + signed distribution
 
 ## License
 
-[MIT](LICENSE) © manuaudio
+MIT — see [LICENSE](LICENSE).
