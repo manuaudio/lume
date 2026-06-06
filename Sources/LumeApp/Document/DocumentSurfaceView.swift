@@ -14,8 +14,13 @@ struct DocumentSurfaceView: View {
                     if model.showEditorTags {
                         DocumentTagHeader(url: url, model: model)
                     }
+                    // No `.id(url)` here: a stable identity lets each viewer REUSE
+                    // its backing NSView across selections (the WebView editor keeps
+                    // its loaded CodeMirror page; image/pdf/quicklook/html re-point in
+                    // updateNSView; config/env reload via .onChange(of: fileURL)).
+                    // Rebuilding per selection cold-booted a ~1.5 MB WebView on every
+                    // click — the dominant open-path stall.
                     viewer(for: url, kind: kind)
-                        .id(url) // rebuild the surface when the selection changes
                 }
             } else {
                 emptyState
