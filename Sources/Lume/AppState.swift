@@ -64,7 +64,8 @@ final class AppState {
         errorMessage = nil
         let kind = FileKind.detect(filename: url.lastPathComponent)
         selectedKind = kind
-        guard Self.textEditableKinds.contains(kind) else {
+        let isConfig = ConfigRegistry.format(forFilename: url.lastPathComponent) != nil
+        guard Self.textEditableKinds.contains(kind) || isConfig else {
             documentText = nil
             loadedText = nil
             isDirty = false
@@ -87,6 +88,9 @@ final class AppState {
         documentText = newText
         isDirty = (newText != loadedText)
     }
+
+    /// The currently-loaded on-disk text (for structured editors to parse).
+    var currentText: String { documentText ?? "" }
 
     /// Save the open document back to disk.
     func save() {

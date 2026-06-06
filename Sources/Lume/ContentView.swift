@@ -31,17 +31,23 @@ private struct DetailView: View {
 
     @ViewBuilder
     private func viewer(for url: URL) -> some View {
-        switch app.selectedKind {
-        case .markdown, .code, .env:
-            if app.documentText != nil { EditorView() } else { loading }
-        case .pdf:
-            PDFViewer(url: url)
-        case .image:
-            ImageViewer(url: url)
-        case .html:
-            HTMLViewer(url: url)
-        case .previewable, .unsupported:
-            QuickLookViewer(url: url)
+        if app.selectedKind == .env {
+            EnvEditorView()
+        } else if ConfigRegistry.format(forFilename: url.lastPathComponent) != nil {
+            ConfigEditorView()
+        } else {
+            switch app.selectedKind {
+            case .markdown, .code, .env:
+                if app.documentText != nil { EditorView() } else { loading }
+            case .pdf:
+                PDFViewer(url: url)
+            case .image:
+                ImageViewer(url: url)
+            case .html:
+                HTMLViewer(url: url)
+            case .previewable, .unsupported:
+                QuickLookViewer(url: url)
+            }
         }
     }
 
