@@ -59,10 +59,9 @@ struct SidebarView: View {
 
 private struct GroupsRegion: View {
     @Environment(AppState.self) private var app
-    @State private var creatingGroup = false
-    @State private var newGroupName = ""
 
     var body: some View {
+        @Bindable var app = app
         Section {
             if app.tags.isEmpty {
                 Text("Drag files onto a group, or tag from the editor header")
@@ -82,21 +81,22 @@ private struct GroupsRegion: View {
             HStack {
                 Text("Groups")
                 Spacer()
-                Button { creatingGroup = true } label: {
+                Button { app.beginNewGroup() } label: {
                     Image(systemName: "plus.circle")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("New Group")
+                .accessibilityLabel("New Group")
             }
         }
-        .alert("New Group", isPresented: $creatingGroup) {
-            TextField("Group name", text: $newGroupName)
+        .alert("New Group", isPresented: $app.presentingNewGroup) {
+            TextField("Group name", text: $app.newGroupName)
             Button("Create") {
-                app.createGroup(named: newGroupName)
-                newGroupName = ""
+                app.createGroup(named: app.newGroupName)
+                app.newGroupName = ""
             }
-            Button("Cancel", role: .cancel) { newGroupName = "" }
+            Button("Cancel", role: .cancel) { app.newGroupName = "" }
         }
     }
 }
@@ -242,6 +242,7 @@ private struct OpenFolderRegion: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("New Folder (⇧⌘N)")
+                .accessibilityLabel("New Folder")
             }
         }
     }
@@ -285,10 +286,13 @@ private struct SelectionActionBar: View {
             Spacer()
             Button { app.copySelectedPaths() } label: { Image(systemName: "doc.on.clipboard") }
                 .help("Copy Paths (⌥⌘C)")
+                .accessibilityLabel("Copy Paths")
             Button { app.revealInFinder(urls) } label: { Image(systemName: "magnifyingglass") }
                 .help("Reveal in Finder")
+                .accessibilityLabel("Reveal in Finder")
             Button { app.moveToTrash(urls) } label: { Image(systemName: "trash") }
                 .help("Move to Trash")
+                .accessibilityLabel("Move to Trash")
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
@@ -316,6 +320,7 @@ private struct SidebarFilterBar: View {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear filter")
                 }
             }
             HStack(spacing: 12) {

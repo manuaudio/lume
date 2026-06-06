@@ -40,6 +40,7 @@ private struct TagChip: View {
                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove tag \(tag.name)")
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)

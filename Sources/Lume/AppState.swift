@@ -58,6 +58,10 @@ final class AppState {
     private(set) var expandedGroups: Set<String> = []
     /// Cached, display-name-sorted member paths per tag name (no disk access).
     private(set) var groupFilePaths: [String: [String]] = [:]
+    /// Drives the New Group dialog (settable from the + button or the menu).
+    var presentingNewGroup = false
+    /// Bound to the New Group dialog's text field.
+    var newGroupName = ""
 
     // MARK: - Internals
 
@@ -149,6 +153,19 @@ final class AppState {
         clearSelection()
     }
 
+    /// Go up one directory, stopping at the opened folder (the breadcrumb home).
+    func goUp() {
+        guard let browseURL, let rootURL, browseURL.path != rootURL.path else { return }
+        let parent = browseURL.deletingLastPathComponent()
+        if parent.path.count >= rootURL.path.count { navigate(to: parent) }
+    }
+
+    /// Whether the browser can still go up (not already at the opened folder).
+    var canGoUp: Bool {
+        guard let browseURL, let rootURL else { return false }
+        return browseURL.path != rootURL.path
+    }
+
     /// Visible children of the current browse directory (cache-backed, filtered).
     var browseChildren: [FileNode] {
         _ = cache.revision   // observe FSEvents invalidations
@@ -210,6 +227,12 @@ final class AppState {
     }
 
     func isGroupExpanded(_ name: String) -> Bool { expandedGroups.contains(name) }
+
+    /// Request the New Group dialog (from a menu command or button).
+    func beginNewGroup() {
+        newGroupName = ""
+        presentingNewGroup = true
+    }
 
     /// Create a new, empty GROUP (idempotent by name).
     func createGroup(named name: String) {
