@@ -31,6 +31,14 @@ struct ConfigEditorView: View {
             rawMode = !model.configShowsStructured(forPath: fileURL.path)
             reload()
         }
+        // The surface is reused across selections (no `.id(url)`), so a new file
+        // arrives as a property change. Reset the parsed state and re-read for it.
+        .onChange(of: fileURL) { _, _ in
+            root = nil
+            parseError = nil
+            rawMode = !model.configShowsStructured(forPath: fileURL.path)
+            reload()
+        }
         .onChange(of: rawMode) { _, raw in
             model.setConfigShowsStructured(!raw, forPath: fileURL.path)
         }
@@ -86,7 +94,10 @@ struct ConfigEditorView: View {
 
     private func reload() {
         isLoading = true
-        model.readFile(fileURL) { text in
+        let url = fileURL
+        model.readFile(url) { text in
+            // Drop a read that resolved after the user switched files (reused view).
+            guard url == fileURL else { return }
             rawText = text
             reparse(text)
             isLoading = false

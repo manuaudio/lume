@@ -53,6 +53,15 @@ struct EnvView: View {
         }
         .background(.background)
         .onAppear(perform: reload)
+        // The surface is reused across selections (no `.id(url)`), so a new file
+        // arrives as a property change, not a fresh view. Reset per-file UI state
+        // and re-read. Any pending debounced write to the previous file keeps its
+        // own captured URL and still flushes independently.
+        .onChange(of: fileURL) { _, _ in
+            revealed = []
+            rawMode = false
+            reload()
+        }
     }
 
     private var header: some View {
@@ -68,7 +77,10 @@ struct EnvView: View {
 
     private func reload() {
         isLoading = true
-        model.readFile(fileURL) { text in
+        let url = fileURL
+        model.readFile(url) { text in
+            // Drop a read that resolved after the user switched files (reused view).
+            guard url == fileURL else { return }
             rawText = text
             lines = EnvFile.parse(text)
             isLoading = false
