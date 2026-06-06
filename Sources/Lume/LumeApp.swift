@@ -53,6 +53,22 @@ struct LumeApp: App {
                     if panel.runModal() == .OK, let url = panel.url { app.openFolder(url) }
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                Button("New Folder") { app.newFolder() }
+                    .keyboardShortcut("n", modifiers: [.shift, .command])
+                    .disabled(app.browseURL == nil)
+            }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { app.undoManager.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!app.undoManager.canUndo)
+                Button("Redo") { app.undoManager.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!app.undoManager.canRedo)
+            }
+            CommandGroup(after: .pasteboard) {
+                Button("Copy Paths") { app.copySelectedPaths() }
+                    .keyboardShortcut("c", modifiers: [.option, .command])
+                    .disabled(app.selectedURLs.isEmpty)
             }
         }
     }

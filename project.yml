@@ -44,7 +44,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
-        ENABLE_HARDENED_RUNTIME: YES
+        # Hardened runtime enforces library validation, which rejects the ad-hoc
+        # signed embedded LumeKit.framework once the .app is copied to
+        # /Applications (Team-ID mismatch → dyld load failure). This is a local,
+        # ad-hoc-signed app (not notarized), so we leave it off.
+        ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
         MARKETING_VERSION: "0.1.0"

@@ -14,6 +14,10 @@ struct SidebarView: View {
                     OpenFolderRegion()
                 }
                 .listStyle(.sidebar)
+                if !app.selectedRowIDs.isEmpty {
+                    Divider()
+                    SelectionActionBar()
+                }
                 Divider()
                 SidebarFilterBar()
             } else {
@@ -106,8 +110,15 @@ private struct GroupHeaderRow: View {
     @State private var newName = ""
     @State private var dropTargeted = false
 
+    private var headerID: String { GroupRowID.headerID(tagName: tag.name) }
+
     var body: some View {
-        Button { app.toggleGroup(tag.name) } label: {
+        Button {
+            let f = NSEvent.modifierFlags
+            app.handleRowTap(headerID, command: f.contains(.command), shift: f.contains(.shift)) {
+                app.toggleGroup(tag.name)
+            }
+        } label: {
             HStack(spacing: 6) {
                 Image(systemName: app.isGroupExpanded(tag.name) ? "chevron.down" : "chevron.right")
                     .font(.caption2)
@@ -124,7 +135,10 @@ private struct GroupHeaderRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(dropTargeted ? Color.accentColor.opacity(0.18) : Color.clear)
+        .listRowBackground(
+            dropTargeted ? Color.accentColor.opacity(0.18)
+                : (app.isRowSelected(headerID) ? Color.accentColor.opacity(0.22) : Color.clear)
+        )
         .dropDestination(for: URL.self) { urls, _ in
             for u in urls { app.addTag(tag.name, toPath: u.path) }
             if !app.isGroupExpanded(tag.name) { app.toggleGroup(tag.name) }
@@ -151,34 +165,33 @@ private struct GroupHeaderRow: View {
     }
 }
 
-/// A file inside an expanded GROUP. Opens on click; right-click to untag.
+/// A file inside an expanded GROUP. Opens on click; full file-ops context menu
+/// plus "Remove from {group}".
 private struct GroupMemberRow: View {
     let tagName: String
     let path: String
     @Environment(AppState.self) private var app
 
     private var url: URL { URL(fileURLWithPath: path) }
+    private var rowID: String { GroupRowID.fileID(tagName: tagName, path: path) }
 
     var body: some View {
-        Button { app.choose(url) } label: {
+        Button {
+            let f = NSEvent.modifierFlags
+            app.handleRowTap(rowID, command: f.contains(.command), shift: f.contains(.shift)) {
+                app.choose(url)
+            }
+        } label: {
             HStack(spacing: 6) {
                 Spacer().frame(width: 14)
-                Image(systemName: symbolName(for: FileKind.detect(filename: url.lastPathComponent)))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-                Text(app.displayName(for: url)).lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 4)
+                RowLabel(url: url, isDirectory: false, hidden: app.isHidden(url))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(
-            app.selectedURL == url ? Color.accentColor.opacity(0.22) : Color.clear
-        )
-        .contextMenu {
+        .modifier(FileRowActions(url: url, rowID: rowID, isDirectory: false) {
             Button("Remove from \(tagName)") { app.removeTag(tagName, fromPath: path) }
-        }
+            Divider()
+        })
     }
 }
 
@@ -220,7 +233,16 @@ private struct OpenFolderRegion: View {
                 }
             }
         } header: {
-            BreadcrumbBar()
+            HStack(spacing: 6) {
+                BreadcrumbBar()
+                Spacer(minLength: 4)
+                Button { app.newFolder() } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("New Folder (⇧⌘N)")
+            }
         }
     }
 }
@@ -246,6 +268,33 @@ private struct BreadcrumbBar: View {
             }
             .font(.caption)
         }
+    }
+}
+
+// MARK: - Selection action bar
+
+private struct SelectionActionBar: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        let urls = app.selectedURLs
+        HStack(spacing: 12) {
+            Text("\(urls.count) selected")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button { app.copySelectedPaths() } label: { Image(systemName: "doc.on.clipboard") }
+                .help("Copy Paths (⌥⌘C)")
+            Button { app.revealInFinder(urls) } label: { Image(systemName: "magnifyingglass") }
+                .help("Reveal in Finder")
+            Button { app.moveToTrash(urls) } label: { Image(systemName: "trash") }
+                .help("Move to Trash")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.4))
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 import LumeKit
 
 @MainActor
@@ -36,6 +37,15 @@ final class AppState {
     var showPinnedHidden = false
     /// Case-insensitive name filter applied to browser/pinned files.
     var browseFilter = ""
+
+    // MARK: - Multi-selection (Finder-style)
+
+    /// The set of selected sidebar row ids (across all regions).
+    private(set) var selectedRowIDs: Set<String> = []
+    /// Anchor for ⇧-range selection.
+    private(set) var anchorID: String?
+    /// The undo manager backing file operations (⌘Z).
+    let undoManager = UndoManager()
 
     // MARK: - Library (SwiftData-backed)
 
@@ -101,6 +111,7 @@ final class AppState {
         selectedURL = nil
         documentText = nil
         errorMessage = nil
+        clearSelection()
         cache.invalidateAll()
         startWatching(url)
         Preferences.saveLastFolder(url)
@@ -133,7 +144,10 @@ final class AppState {
     }
 
     /// Drill the browser into `url` (a directory).
-    func navigate(to url: URL) { browseURL = url }
+    func navigate(to url: URL) {
+        browseURL = url
+        clearSelection()
+    }
 
     /// Visible children of the current browse directory (cache-backed, filtered).
     var browseChildren: [FileNode] {
@@ -162,13 +176,17 @@ final class AppState {
     }
 
     func toggleFavorite(_ node: FileNode) {
+        toggleFavorite(url: node.url, isDirectory: node.isDirectory)
+    }
+
+    func toggleFavorite(url: URL, isDirectory: Bool) {
         guard let library else { return }
-        if library.isFavorite(path: node.url.path) {
-            library.removeFavorite(path: node.url.path)
-        } else if node.isDirectory {
-            library.addFavoriteFolder(path: node.url.path)
+        if library.isFavorite(path: url.path) {
+            library.removeFavorite(path: url.path)
+        } else if isDirectory {
+            library.addFavoriteFolder(path: url.path)
         } else {
-            library.addFavorite(path: node.url.path, kind: node.kind)
+            library.addFavorite(path: url.path, kind: FileKind.detect(filename: url.lastPathComponent))
         }
         refreshLibrary()
     }
@@ -241,6 +259,213 @@ final class AppState {
     func tagSuggestions(forPath path: String) -> [Tag] {
         let applied = Set(tags(forPath: path).map(\.name))
         return tags.filter { !applied.contains($0.name) }
+    }
+
+    // MARK: - Row ids & selection order
+
+    /// Encode a browser/favorite row id compatible with `RowSelection`
+    /// ("section|d-or-f|path"). Group rows use `GroupRowID`.
+    static func browseRowID(_ node: FileNode) -> String {
+        "browse|\(node.isDirectory ? "d" : "f")|\(node.url.path)"
+    }
+    static func favoriteRowID(_ favorite: Favorite, isFolder: Bool) -> String {
+        "fav|\(isFolder ? "d" : "f")|\(favorite.path)"
+    }
+
+    /// Decode the file URL a row id points at (nil for group headers).
+    func url(forRowID id: String) -> URL? {
+        if id.hasPrefix("browse|") || id.hasPrefix("fav|") {
+            let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+            if parts.count == 3 { return URL(fileURLWithPath: String(parts[2])) }
+            return nil
+        }
+        return GroupRowID.fileURL(forID: id)
+    }
+
+    /// Flat top-to-bottom order of every currently-visible row, matching render
+    /// order (GROUPS → Favorites → Open Folder). Drives ⇧-range selection.
+    var visibleRowOrder: [String] {
+        var ids: [String] = []
+        ids += GroupRowOrder.ids(tagNames: tags.map(\.name),
+                                 expandedGroups: expandedGroups,
+                                 groupFilePaths: groupFilePaths)
+        for fav in visibleFavorites {
+            ids.append(Self.favoriteRowID(fav, isFolder: favoriteIsFolder(fav)))
+        }
+        for node in browseChildren {
+            ids.append(Self.browseRowID(node))
+        }
+        return ids
+    }
+
+    func isRowSelected(_ id: String) -> Bool { selectedRowIDs.contains(id) }
+
+    /// Plain click: collapse the multi-selection to this one row.
+    func selectSingle(_ id: String) {
+        selectedRowIDs = [id]
+        anchorID = id
+    }
+
+    /// ⌘ / ⇧ click: extend the multi-selection without activating the row.
+    func extendSelection(_ id: String, command: Bool, shift: Bool) {
+        let result = RowSelection.click(
+            target: id,
+            current: selectedRowIDs,
+            anchor: anchorID,
+            in: visibleRowOrder,
+            command: command,
+            shift: shift
+        )
+        selectedRowIDs = result.selection
+        anchorID = result.anchor
+    }
+
+    func clearSelection() {
+        selectedRowIDs = []
+        anchorID = nil
+    }
+
+    /// Route a row tap: ⌘/⇧ extend the multi-selection; a plain click collapses
+    /// to this row and activates it (open file / drill folder / toggle group).
+    func handleRowTap(_ id: String, command: Bool, shift: Bool, activate: () -> Void) {
+        if command || shift {
+            extendSelection(id, command: command, shift: shift)
+        } else {
+            selectSingle(id)
+            activate()
+        }
+    }
+
+    /// Resolved file URLs for the current multi-selection (drops group headers),
+    /// in visible order. Falls back to the open document when nothing is multi-
+    /// selected, so single-file actions still work.
+    var selectedURLs: [URL] {
+        let order = visibleRowOrder
+        let urls = order.filter { selectedRowIDs.contains($0) }.compactMap { url(forRowID: $0) }
+        if urls.isEmpty, let selectedURL { return [selectedURL] }
+        return urls
+    }
+
+    // MARK: - File operations (with Undo)
+
+    private let fm = FileManager.default
+
+    /// Copy the selected files' POSIX paths to the clipboard (⌥⌘C).
+    func copySelectedPaths() {
+        let text = PathExport.clipboardString(for: selectedURLs)
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Create a new folder in the current browse directory.
+    func newFolder() {
+        guard let dir = browseURL else { return }
+        let url = FileOps.uniqueChild(in: dir, base: "untitled folder")
+        do {
+            try fm.createDirectory(at: url, withIntermediateDirectories: false)
+            cache.invalidate(path: dir.path)
+            registerUndo("New Folder") { [weak self] in self?.trashSilently([url]) }
+        } catch {
+            errorMessage = "Couldn't create folder: \(error.localizedDescription)"
+        }
+    }
+
+    /// Rename a file/folder on disk (not its display label).
+    func rename(_ url: URL, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != url.lastPathComponent else { return }
+        let dst = url.deletingLastPathComponent().appendingPathComponent(trimmed)
+        do {
+            try fm.moveItem(at: url, to: dst)
+            cache.invalidate(path: url.deletingLastPathComponent().path)
+            if selectedURL == url { choose(dst) }
+            registerUndo("Rename") { [weak self] in self?.rename(dst, to: url.lastPathComponent) }
+        } catch {
+            errorMessage = "Couldn't rename \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    /// Finder-style duplicate ("<name> copy").
+    func duplicate(_ url: URL) {
+        let dst = FileOps.duplicateURL(for: url)
+        do {
+            try fm.copyItem(at: url, to: dst)
+            cache.invalidate(path: url.deletingLastPathComponent().path)
+            registerUndo("Duplicate") { [weak self] in self?.trashSilently([dst]) }
+        } catch {
+            errorMessage = "Couldn't duplicate \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    /// Move files to the Trash, undoably (restores them from the Trash).
+    func moveToTrash(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        var restores: [(trashed: URL, original: URL)] = []
+        for u in urls {
+            var resulting: NSURL?
+            do {
+                try fm.trashItem(at: u, resultingItemURL: &resulting)
+                if let r = resulting as URL? { restores.append((r, u)) }
+                cache.invalidate(path: u.deletingLastPathComponent().path)
+                if selectedURL == u { selectedURL = nil; documentText = nil }
+            } catch {
+                errorMessage = "Couldn't trash \(u.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        clearSelection()
+        registerUndo("Move to Trash") { [weak self] in
+            guard let self else { return }
+            for (trashed, original) in restores {
+                try? self.fm.moveItem(at: trashed, to: original)
+                self.cache.invalidate(path: original.deletingLastPathComponent().path)
+            }
+        }
+    }
+
+    /// Reveal the selection in Finder.
+    func revealInFinder(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    func isHidden(_ url: URL) -> Bool { hiddenPaths.contains(url.path) }
+
+    /// Toggle the user-hidden flag for a set of files (hides if any are visible,
+    /// else reveals all). Affects the Favorites region's pinned-hidden filter.
+    func toggleHidden(_ urls: [URL]) {
+        guard let library, !urls.isEmpty else { return }
+        let paths = urls.map(\.path)
+        let shouldHide = paths.contains { !hiddenPaths.contains($0) }
+        library.setHidden(shouldHide, paths: paths)
+        refreshLibrary()
+    }
+
+    /// Set a display-only label for a file (preserves its other metadata). An
+    /// empty string clears the override.
+    func setDisplayName(_ url: URL, to name: String) {
+        guard let library else { return }
+        let meta = library.meta(for: url.path)
+        library.setMeta(path: url.path,
+                        info: meta?.info ?? "",
+                        tagNames: meta?.tags.map(\.name) ?? [],
+                        displayName: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        refreshLibrary()
+    }
+
+    // MARK: Undo plumbing
+
+    private func registerUndo(_ name: String, _ action: @escaping () -> Void) {
+        undoManager.registerUndo(withTarget: self) { _ in action() }
+        undoManager.setActionName(name)
+    }
+
+    /// Trash without registering undo — used as the inverse of create/duplicate.
+    private func trashSilently(_ urls: [URL]) {
+        for u in urls {
+            try? fm.trashItem(at: u, resultingItemURL: nil)
+            cache.invalidate(path: u.deletingLastPathComponent().path)
+        }
     }
 
     // MARK: - Display name
