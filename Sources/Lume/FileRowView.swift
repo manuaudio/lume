@@ -22,8 +22,17 @@ struct FileRowView: View {
                 }
             }
         } else {
-            Label(node.name, systemImage: "doc.text")
-                .tag(node.url)
+            Button {
+                app.choose(node.url)
+            } label: {
+                Label(node.name, systemImage: "doc.text")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(
+                app.selectedURL == node.url ? Color.accentColor.opacity(0.25) : Color.clear
+            )
         }
     }
 }

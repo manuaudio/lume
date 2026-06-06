@@ -49,6 +49,12 @@ final class AppState {
         }
     }
 
+    /// Choose a file from the sidebar: highlight immediately, then load.
+    func choose(_ url: URL) {
+        selectedURL = url
+        Task { await select(url) }
+    }
+
     /// Select a file: load text if it's textual, else mark as non-text.
     func select(_ url: URL) async {
         selectedURL = url

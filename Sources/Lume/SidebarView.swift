@@ -6,10 +6,9 @@ struct SidebarView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        @Bindable var app = app
         VStack(spacing: 0) {
             if app.rootURL != nil {
-                List(selection: $app.selectedURL) {
+                List {
                     ForEach(app.rootChildren) { node in
                         FileRowView(node: node)
                     }
@@ -32,10 +31,6 @@ struct SidebarView: View {
                     Label("Open Folder", systemImage: "folder")
                 }
             }
-        }
-        .onChange(of: app.selectedURL) { _, url in
-            guard let url else { return }
-            Task { await app.select(url) }
         }
     }
 

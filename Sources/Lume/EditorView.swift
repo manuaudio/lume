@@ -13,18 +13,32 @@ struct EditorView: NSViewRepresentable {
         // TextKit 2 stack: NSTextView created with a layout manager.
         let textView = NSTextView(usingTextLayoutManager: true)
         textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.isRichText = false
         textView.allowsUndo = true
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textContainerInset = NSSize(width: 8, height: 12)
-        textView.autoresizingMask = [.width]
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+
+        // Canonical resizable text view inside a scroll view.
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = true
+        scrollView.autohidesScrollers = true
         context.coordinator.textView = textView
         return scrollView
     }
@@ -37,6 +51,11 @@ struct EditorView: NSViewRepresentable {
         if textView.string != incoming {
             textView.string = incoming
             context.coordinator.highlight(textView)
+            // Open a freshly-selected document ready to type — no extra click needed.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+            }
         }
     }
 
