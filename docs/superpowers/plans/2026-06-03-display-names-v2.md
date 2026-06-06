@@ -76,8 +76,8 @@ import Foundation
 // MARK: autoName
 
 @Test func displayName_autoNameReturnsParentFolderForAmbiguousFile() {
-    let url = URL(fileURLWithPath: "/Users/me/freshydeli/.env")
-    #expect(DisplayName.autoName(for: url) == "freshydeli")
+    let url = URL(fileURLWithPath: "/Users/me/myproject/.env")
+    #expect(DisplayName.autoName(for: url) == "myproject")
 }
 
 @Test func displayName_autoNameWorksForEnvVariantAndDeepPath() {
@@ -86,7 +86,7 @@ import Foundation
 }
 
 @Test func displayName_autoNameIsNilForNonAmbiguousFile() {
-    let url = URL(fileURLWithPath: "/Users/me/freshydeli/notes.md")
+    let url = URL(fileURLWithPath: "/Users/me/myproject/notes.md")
     #expect(DisplayName.autoName(for: url) == nil)
 }
 

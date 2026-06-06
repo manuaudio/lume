@@ -1,6 +1,6 @@
 name: Lume
 options:
-  bundleIdPrefix: com.freshydeli
+  bundleIdPrefix: com.lume
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -17,7 +17,7 @@ targets:
     sources: [Sources/LumeKit]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.LumeKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.lume.LumeKit
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
@@ -30,7 +30,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.Lume
+        PRODUCT_BUNDLE_IDENTIFIER: com.lume.Lume
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
         INFOPLIST_KEY_NSHumanReadableCopyright: ""

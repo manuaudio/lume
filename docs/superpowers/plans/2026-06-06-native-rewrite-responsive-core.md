@@ -38,7 +38,7 @@ Tests/LumeKitTests/
 **Retired (deleted on this branch; preserved on `archive/spm-prototype`):** `Package.swift`, old `Sources/LumeApp/`, `Sources/LumeCore/`, `Tests/LumeCoreTests/`, `dist/`.
 
 **Conventions used across all tasks:**
-- Bundle id prefix: `com.freshydeli` (app = `com.freshydeli.Lume`).
+- Bundle id prefix: `com.lume` (app = `com.lume.Lume`).
 - Deployment target: macOS 14.0. Swift language version 6, strict concurrency complete.
 - Build dir: `build/`. Built app: `build/Build/Products/Debug/Lume.app`.
 - Generate project: `xcodegen generate`
@@ -71,7 +71,7 @@ git rm -r Package.swift Sources/LumeApp Sources/LumeCore Tests/LumeCoreTests dis
 ```yaml
 name: Lume
 options:
-  bundleIdPrefix: com.freshydeli
+  bundleIdPrefix: com.lume
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -88,7 +88,7 @@ targets:
     sources: [Sources/LumeKit]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.LumeKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.lume.LumeKit
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
   Lume:
@@ -100,7 +100,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.Lume
+        PRODUCT_BUNDLE_IDENTIFIER: com.lume.Lume
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
         INFOPLIST_KEY_NSHumanReadableCopyright: ""

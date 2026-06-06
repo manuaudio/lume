@@ -68,7 +68,7 @@ A file row renders: `[kind icon]  EffectiveName   filename`
 ### 4. Editing semantics (extends `RenameField`)
 
 - **Pre-fill** the rename field with the current **effective** label (so editing
-  a pinned `.env` starts from "freshydeli", not blank or ".env").
+  a pinned `.env` starts from "myproject", not blank or ".env").
 - **On commit**, compute what to store:
   - If trimmed text == filename **or** == `autoName(url)` → store `""`
     (no override; stays auto/plain).
