@@ -1,0 +1,62 @@
+name: Lume
+options:
+  bundleIdPrefix: com.freshydeli
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  LumeKit:
+    type: framework
+    platform: macOS
+    sources: [Sources/LumeKit]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.LumeKit
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+  Lume:
+    type: application
+    platform: macOS
+    sources: [Sources/Lume]
+    dependencies:
+      - target: LumeKit
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.freshydeli.Lume
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        MARKETING_VERSION: "0.1.0"
+  LumeKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests/LumeKitTests]
+    dependencies:
+      - target: LumeKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+schemes:
+  Lume:
+    build:
+      targets:
+        Lume: all
+        LumeKitTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [LumeKitTests]
