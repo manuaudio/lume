@@ -4,35 +4,52 @@ import WebKit
 /// The SwiftUI ↔ CodeMirror (WKWebView) boundary for editable/read-only docs.
 ///
 /// Owns the script-message handler that receives debounced `change` events from
-/// the editor, and exposes typed calls (`load`, `setTheme`) that marshal into
-/// `window.Lume.*` JavaScript.
+/// the editor, and exposes typed calls (`show`, `setTheme`) that marshal into
+/// `window.Lume.*` JavaScript. The bridge persists for the lifetime of the
+/// reused `WKWebView`, so switching documents re-runs `Lume.init` on the
+/// already-loaded page instead of booting a fresh web view (see
+/// `MarkdownEditorView`).
 final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
-    /// Called with the editor's full text whenever the document changes.
+    /// Called with the editor's full text whenever the document changes. Reset by
+    /// `MarkdownEditorView` on every document switch so writes always target the
+    /// file currently shown.
     var onChange: (String) -> Void = { _ in }
 
-    /// Invoked once the bundled `editor.html` finishes loading, so the caller
-    /// can push the initial document text.
-    var onReady: () -> Void = {}
+    /// The URL currently shown (or being loaded). Lets `updateNSView` skip a
+    /// redundant reload and lets a slow read ignore itself if the user moved on.
+    var shownURL: URL?
 
     private weak var webView: WKWebView?
-    private var didLoadPage = false
+    private var pageLoaded = false
+    /// The document we want shown. Stored until the editor page finishes loading,
+    /// then flushed via `Lume.init`. Overwritten by a newer switch so the last
+    /// requested document wins.
+    private var desired: (text: String, editable: Bool, dark: Bool)?
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
     }
 
-    /// Initialize the CodeMirror editor with text and configuration.
-    func load(text: String, editable: Bool, dark: Bool) {
-        let js = """
-        Lume.init({ text: \(text.asJSStringLiteral), mode: 'markdown', editable: \(editable), theme: '\(dark ? "dark" : "light")' });
-        """
-        run(js)
+    /// Show a document in the editor. Defers until the bundled `editor.html` has
+    /// finished loading; once loaded, subsequent calls re-init the editor on the
+    /// live page (no navigation, no reload).
+    func show(text: String, editable: Bool, dark: Bool) {
+        desired = (text, editable, dark)
+        flushIfReady()
     }
 
     /// Push the active color scheme into the editor in lockstep with SwiftUI.
     func setTheme(dark: Bool) {
-        guard didLoadPage else { return }
+        guard pageLoaded else { return }
         run("Lume.setTheme('\(dark ? "dark" : "light")');")
+    }
+
+    private func flushIfReady() {
+        guard pageLoaded, let d = desired else { return }
+        let js = """
+        Lume.init({ text: \(d.text.asJSStringLiteral), mode: 'markdown', editable: \(d.editable), theme: '\(d.dark ? "dark" : "light")' });
+        """
+        run(js)
     }
 
     private func run(_ js: String) {
@@ -53,8 +70,8 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        didLoadPage = true
-        onReady()
+        pageLoaded = true
+        flushIfReady()
     }
 }
 

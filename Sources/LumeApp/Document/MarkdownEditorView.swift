@@ -5,6 +5,14 @@ import LumeCore
 /// Loads the bundled CodeMirror editor into a `WKWebView`, then hosts a single
 /// document. Used by both the editable Markdown surface and the read-only code
 /// view (toggled via `editable`).
+///
+/// The `WKWebView` is created ONCE and reused across document switches: when the
+/// selected file changes, `updateNSView` re-inits the editor on the already-loaded
+/// page via `bridge.show(...)` instead of letting SwiftUI tear down and rebuild
+/// the view. Booting a fresh `WKWebView` (which reloads the ~1.5 MB CodeMirror
+/// bundle and waits for a navigation round-trip) on every sidebar click was the
+/// dominant cause of click-to-open sluggishness, so the document surface no longer
+/// carries an `.id(url)` — reuse depends on a stable identity.
 struct MarkdownEditorView: NSViewRepresentable {
     let fileURL: URL
     let editable: Bool
@@ -12,19 +20,10 @@ struct MarkdownEditorView: NSViewRepresentable {
 
     @Environment(\.colorScheme) private var scheme
 
-    func makeCoordinator() -> EditorBridge {
-        let bridge = EditorBridge()
-        if editable {
-            bridge.onChange = { [model] text in
-                model.write(text, to: fileURL)
-            }
-        }
-        return bridge
-    }
+    func makeCoordinator() -> EditorBridge { EditorBridge() }
 
     func makeNSView(context: Context) -> WKWebView {
         let bridge = context.coordinator
-        let dark = scheme == .dark
 
         let config = WKWebViewConfiguration()
         config.userContentController.add(bridge, name: "lume")
@@ -34,23 +33,40 @@ struct MarkdownEditorView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground") // let the page bg show through
         bridge.attach(webView)
 
-        // Push the initial document once the editor page is ready. The read is
-        // iCloud-aware and runs off the main thread, so a slow/evicted file does
-        // not freeze the UI; the editor loads when the bytes arrive.
-        bridge.onReady = { [model] in
-            model.readFile(fileURL) { text in
-                bridge.load(text: text, editable: editable, dark: dark)
-            }
-        }
-
+        // Load the editor shell once. The first document is requested immediately
+        // (in parallel with the page load) and flushed by the bridge as soon as
+        // the page reports ready — the read and the WebView boot overlap instead
+        // of serializing.
         if let base = WebEditorResources.editorURL {
             webView.loadFileURL(base, allowingReadAccessTo: base.deletingLastPathComponent())
         }
+        loadDocument(into: bridge)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.setTheme(dark: scheme == .dark)
+        let bridge = context.coordinator
+        bridge.setTheme(dark: scheme == .dark)
+        // The selection changed onto a new file (same viewer type → reused view):
+        // re-init the editor on the live page rather than rebuilding it.
+        if bridge.shownURL != fileURL {
+            loadDocument(into: bridge)
+        }
+    }
+
+    /// Point the bridge at `fileURL`, route its change-writes to that file, and
+    /// kick the iCloud-aware read. The read is off the calling frame; a stale
+    /// completion (user already moved on) is dropped via the `shownURL` guard.
+    private func loadDocument(into bridge: EditorBridge) {
+        let url = fileURL
+        let editable = self.editable
+        let dark = scheme == .dark
+        bridge.shownURL = url
+        bridge.onChange = editable ? { [model] text in model.write(text, to: url) } : { _ in }
+        model.readFile(url) { text in
+            guard bridge.shownURL == url else { return }
+            bridge.show(text: text, editable: editable, dark: dark)
+        }
     }
 }
 
