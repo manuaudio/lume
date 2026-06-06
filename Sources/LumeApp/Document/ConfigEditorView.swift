@@ -19,6 +19,7 @@ struct ConfigEditorView: View {
     /// programmatic change doesn't trigger a self-overwriting disk write.
     @State private var isLoading = false
     @State private var writeTask: Task<Void, Never>?
+    @State private var parseTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +53,7 @@ struct ConfigEditorView: View {
                 .padding(12)
                 .onChange(of: rawText) { _, new in
                     guard !isLoading else { return }
-                    reparse(new)
+                    scheduleReparse(new)
                     scheduleWrite(new)
                 }
         } else if let parseError {
@@ -101,6 +102,19 @@ struct ConfigEditorView: View {
             rawText = text
             reparse(text)
             isLoading = false
+        }
+    }
+
+    /// Debounce the structured re-parse while typing in raw mode (~250 ms). The
+    /// parsed tree isn't shown in raw mode, so there's no need to re-run the full
+    /// format parser on every keystroke — only the latest text matters for when
+    /// the user toggles back to the structured view.
+    private func scheduleReparse(_ text: String) {
+        parseTask?.cancel()
+        parseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            reparse(text)
         }
     }
 

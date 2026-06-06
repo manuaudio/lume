@@ -9,6 +9,8 @@ struct EnvView: View {
     let model: AppModel
 
     @State private var lines: [EnvLine] = []
+    /// Derived from `lines` once per reload (not recomputed each `body`).
+    @State private var entries: [EnvEntry] = []
     @State private var revealed: Set<String> = []
     @State private var rawMode = false
     @State private var rawText = ""
@@ -16,8 +18,6 @@ struct EnvView: View {
     /// does not trigger a (pointless, self-overwriting) disk write.
     @State private var isLoading = false
     @State private var writeTask: Task<Void, Never>?
-
-    private var entries: [EnvEntry] { EnvFile.entries(from: lines) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,6 +83,7 @@ struct EnvView: View {
             guard url == fileURL else { return }
             rawText = text
             lines = EnvFile.parse(text)
+            entries = EnvFile.entries(from: lines)
             isLoading = false
         }
     }

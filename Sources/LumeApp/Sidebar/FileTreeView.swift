@@ -103,8 +103,12 @@ struct FileTreeView: View {
     }
 
     private func reload() {
-        children = model.children(of: parent,
-                                  includeHidden: Self.includeHidden(section: section, model: model))
+        let fresh = model.children(of: parent,
+                                   includeHidden: Self.includeHidden(section: section, model: model))
+        // `.onAppear` fires on every (re)mount as the List recycles rows; only
+        // assign when the contents actually changed so an unchanged directory
+        // doesn't trigger a needless re-render.
+        if fresh != children { children = fresh }
     }
 }
 
