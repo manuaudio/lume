@@ -124,8 +124,16 @@ final class AppModel {
     var tagsOpenPath: String?
 
     /// Injected once from `ContentView` so toolbar/sidebar actions can reach
-    /// the SwiftData store without each view re-deriving it.
-    @ObservationIgnored var libraryContext: ModelContext?
+    /// the SwiftData store without each view re-deriving it. Reassigning drops the
+    /// cached `store` so it rebinds to the new context.
+    @ObservationIgnored var libraryContext: ModelContext? {
+        didSet { _store = nil }
+    }
+
+    /// Cached `LibraryStore`. The previous computed `store` allocated a fresh
+    /// wrapper on every access (`isPinned`, `meta(for:)`, …); cache one instance
+    /// so a hot caller can't accidentally churn allocations per row/iteration.
+    @ObservationIgnored private var _store: LibraryStore?
 
     @ObservationIgnored let files: FileServicing = FileService()
 
@@ -904,6 +912,10 @@ final class AppModel {
     }
 
     var store: LibraryStore? {
-        libraryContext.map { LibraryStore(context: $0) }
+        if let _store { return _store }
+        guard let context = libraryContext else { return nil }
+        let s = LibraryStore(context: context)
+        _store = s
+        return s
     }
 }
