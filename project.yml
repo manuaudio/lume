@@ -10,11 +10,21 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+packages:
+  Yams:
+    url: https://github.com/jpsim/Yams.git
+    from: "5.1.0"
+  TOMLKit:
+    url: https://github.com/LebJe/TOMLKit.git
+    from: "0.6.0"
 targets:
   LumeKit:
     type: framework
     platform: macOS
     sources: [Sources/LumeKit]
+    dependencies:
+      - package: Yams
+      - package: TOMLKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lume.LumeKit

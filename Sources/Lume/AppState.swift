@@ -14,14 +14,17 @@ final class AppState {
     /// The open document's text (bound to the editor). Nil when nothing/binary is selected.
     var documentText: String?
     /// Kind of the current selection, drives which detail view shows.
-    private(set) var selectedKind: FileKind = .other
+    private(set) var selectedKind: FileKind = .unsupported
     /// Whether the open document has unsaved edits.
     private(set) var isDirty = false
     /// A user-facing, non-fatal error message for the detail pane.
     private(set) var errorMessage: String?
 
     private var loadedText: String?
-    private let scanner = FolderScanner()
+    private let files = FileService()
+
+    /// Kinds Lume edits as plain text in the editor (others get a viewer/placeholder).
+    static let textEditableKinds: Set<FileKind> = [.markdown, .env, .code]
 
     /// Open a folder as the new root. Persists it for next launch.
     func openFolder(_ url: URL) {
@@ -42,7 +45,7 @@ final class AppState {
 
     /// Scan one directory level. Returns [] on failure (logged via errorMessage).
     func children(of url: URL) -> [FileNode] {
-        do { return try scanner.scan(url) }
+        do { return try files.enumerate(url) }
         catch {
             errorMessage = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
             return []
@@ -59,9 +62,9 @@ final class AppState {
     func select(_ url: URL) async {
         selectedURL = url
         errorMessage = nil
-        let kind = FileKind(url: url)
+        let kind = FileKind.detect(filename: url.lastPathComponent)
         selectedKind = kind
-        guard kind != .other else {
+        guard Self.textEditableKinds.contains(kind) else {
             documentText = nil
             loadedText = nil
             isDirty = false

@@ -24,10 +24,10 @@ private struct DetailView: View {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if app.selectedURL == nil {
             ContentUnavailableView("No File Selected", systemImage: "doc", description: Text("Pick a file in the sidebar."))
-        } else if app.selectedKind == .other {
-            NonTextDetailView()
-        } else {
+        } else if app.documentText != nil {
             EditorView()
+        } else {
+            NonTextDetailView()
         }
     }
 }
