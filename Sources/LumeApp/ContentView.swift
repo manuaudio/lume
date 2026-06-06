@@ -51,6 +51,14 @@ struct ContentView: View {
             model.undoManager = undoManager
             model.seedAndMigratePins()
             model.applyLaunchEnvironment()
+            // TEMP perf harness: auto-switch to a second file to measure a warm open.
+            if let f2 = ProcessInfo.processInfo.environment["LUME_OPEN_FILE2"], !f2.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    Perf.mark("=== AUTO-SWITCH to file2 (warm-open test) ===")
+                    model.selectedFile = URL(fileURLWithPath: f2)
+                }
+            }
         }
         .onChange(of: undoManager) { _, new in model.undoManager = new }
         .onReceive(NotificationCenter.default.publisher(for: .lumeOpenFolder)) { _ in

@@ -23,6 +23,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     func makeCoordinator() -> EditorBridge { EditorBridge() }
 
     func makeNSView(context: Context) -> WKWebView {
+        Perf.mark("MAKEnsview (COLD: new WKWebView) \(fileURL.lastPathComponent)")
         let bridge = context.coordinator
 
         let config = WKWebViewConfiguration()
@@ -50,6 +51,7 @@ struct MarkdownEditorView: NSViewRepresentable {
         // The selection changed onto a new file (same viewer type → reused view):
         // re-init the editor on the live page rather than rebuilding it.
         if bridge.shownURL != fileURL {
+            Perf.mark("UPDATEnsview (WARM: reused view) -> switch to \(fileURL.lastPathComponent)")
             loadDocument(into: bridge)
         }
     }
@@ -63,8 +65,10 @@ struct MarkdownEditorView: NSViewRepresentable {
         let dark = scheme == .dark
         bridge.shownURL = url
         bridge.onChange = editable ? { [model] text in model.write(text, to: url) } : { _ in }
+        Perf.mark("loadDocument begin -> readFile \(url.lastPathComponent)")
         model.readFile(url) { text in
             guard bridge.shownURL == url else { return }
+            Perf.mark("readFile DONE (\(text.count) chars) -> bridge.show \(url.lastPathComponent)")
             bridge.show(text: text, editable: editable, dark: dark)
         }
     }

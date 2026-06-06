@@ -410,6 +410,7 @@ final class AppModel {
             browseRoot = url
         }
         if let file = env["LUME_OPEN_FILE"], !file.isEmpty {
+            Perf.mark("=== COLD OPEN: selectedFile set to \((file as NSString).lastPathComponent) ===")
             selectedFile = URL(fileURLWithPath: file)
         }
     }
@@ -533,13 +534,18 @@ final class AppModel {
     /// Open a file in the document view only when exactly one file row is
     /// selected, so extending a multi-selection doesn't thrash the document view.
     func openIfSingleFileSelected() {
+        Perf.mark(">>> CLICK: openIfSingleFileSelected (selCount=\(selectedRowIDs.count))")
         if let id = soleSelectedRowID {
             // A fresh single selection becomes the new anchor for ⇧-extends.
             selectionAnchorID = id
             selectionFocusID = id
         }
         guard let id = soleSelectedRowID,
-              let row = SidebarRow.decode(id), !row.isDirectory else { return }
+              let row = SidebarRow.decode(id), !row.isDirectory else {
+            Perf.mark(">>> CLICK: not a single file (no open)")
+            return
+        }
+        Perf.mark(">>> CLICK: selectedFile set -> \(row.url.lastPathComponent)")
         selectedFile = row.url
     }
 

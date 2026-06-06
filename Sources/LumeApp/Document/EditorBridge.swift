@@ -45,7 +45,11 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     private func flushIfReady() {
-        guard pageLoaded, let d = desired else { return }
+        guard pageLoaded, let d = desired else {
+            Perf.mark("flushIfReady SKIP (pageLoaded=\(pageLoaded), hasDesired=\(desired != nil))")
+            return
+        }
+        Perf.mark("flushIfReady -> evaluating Lume.init (\(d.text.count) chars)")
         let js = """
         Lume.init({ text: \(d.text.asJSStringLiteral), mode: 'markdown', editable: \(d.editable), theme: '\(d.dark ? "dark" : "light")' });
         """
@@ -70,6 +74,7 @@ final class EditorBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Perf.mark("WKWebView didFinish (editor.html + 1.5MB bundle loaded)")
         pageLoaded = true
         flushIfReady()
     }
