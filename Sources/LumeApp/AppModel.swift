@@ -418,21 +418,28 @@ final class AppModel {
 
     // MARK: File reads (iCloud-aware)
 
-    /// Read a file's text without touching iCloud download state. Safe and
-    /// instant if the file is already local; returns "" for an evicted
-    /// placeholder (callers should prefer `readFile(_:completion:)`).
-    func readFileNow(_ url: URL) -> String {
-        (try? files.read(url)) ?? ""
-    }
-
     /// Read a file's text, first making sure an evicted iCloud placeholder is
     /// materialized on disk. Never blocks the calling thread; `completion` is
     /// invoked on the main actor once the bytes are available (or after a brief
     /// download timeout).
     func readFile(_ url: URL, completion: @escaping (String) -> Void) {
-        ICloudCoordinator.ensureDownloaded(url) { [weak self] in
-            completion(self?.readFileNow(url) ?? "")
+        // `files` is a Sendable, stateless service; capture it so the disk read
+        // runs OFF the main actor. The enclosing Task is @MainActor-isolated
+        // (AppModel is @MainActor), so `completion` is delivered back on the main
+        // actor with the text already in hand — the click frame is never blocked
+        // on disk I/O or an iCloud readiness syscall.
+        let files = self.files
+        Task {
+            let text = await Self.readOffMain(url, using: files)
+            completion(text)
         }
+    }
+
+    /// Materialize an evicted iCloud placeholder (off-main) and read the bytes off
+    /// the main actor. Returns "" for an unreadable/evicted file.
+    private nonisolated static func readOffMain(_ url: URL, using files: FileServicing) async -> String {
+        await ICloudCoordinator.ensureDownloaded(url)
+        return await Task.detached { (try? files.read(url)) ?? "" }.value
     }
 
     /// Pending debounced document writes, keyed by path. Keyed (not a single

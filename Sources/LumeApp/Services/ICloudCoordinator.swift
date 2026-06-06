@@ -7,7 +7,9 @@ import Foundation
 /// materialize — but never on the main thread, so the UI never freezes.
 enum ICloudCoordinator {
     /// True if the item is local and ready to read right now (or is not an
-    /// iCloud item at all). Cheap, non-blocking — safe to call on the main thread.
+    /// iCloud item at all). NOTE: `resourceValues` can block on the iCloud daemon
+    /// when it is busy — call this OFF the main thread (both `ensureDownloaded`
+    /// entry points below now do).
     static func isReady(_ url: URL) -> Bool {
         let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
         guard let status = values?.ubiquitousItemDownloadingStatus else {
@@ -32,12 +34,11 @@ enum ICloudCoordinator {
     }
 
     /// Completion convenience over the async API: materializes the item, then
-    /// calls `completion` on the main actor.
+    /// calls `completion` on the main actor. The readiness check and any download
+    /// wait run off the main thread (this is a nonisolated static, so the `Task`
+    /// runs on the cooperative pool), so a slow/busy iCloud daemon never blocks
+    /// the click frame — even for an already-local file.
     static func ensureDownloaded(_ url: URL, completion: @escaping @MainActor () -> Void) {
-        if isReady(url) {
-            MainActor.assumeIsolated(completion)
-            return
-        }
         Task {
             await ensureDownloaded(url)
             await MainActor.run { completion() }
