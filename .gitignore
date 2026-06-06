@@ -1,6 +1,9 @@
 .build/
 .swiftpm/
 
+# macOS Finder cruft
+.DS_Store
+
 # Stray top-level executable from `swift build`/`swift run`
 /main
 
