@@ -430,11 +430,28 @@ struct MetaIndexLoader: View {
     // create/rename/delete refreshes the membership cache.
     @Query(sort: \Tag.name) private var allTags: [Tag]
 
+    /// Debounces the full-table rebuild. `push()` is O(all files × tags), and a
+    /// burst of mutations — most notably the notes autosave firing every ~400 ms
+    /// while typing, whose `info` change doesn't even affect the index — would
+    /// otherwise re-scan everything per event. Coalesce rapid changes into one
+    /// rebuild. Runs on the main actor (SwiftData models are main-actor bound).
+    @State private var rebuild: Task<Void, Never>?
+
     var body: some View {
         Color.clear
             .onAppear { push() }
-            .onChange(of: allMeta) { _, _ in push() }
-            .onChange(of: allTags.map(\.name)) { _, _ in push() }
+            .onChange(of: allMeta) { _, _ in schedulePush() }
+            .onChange(of: allTags.map(\.name)) { _, _ in schedulePush() }
+            .onDisappear { rebuild?.cancel() }
+    }
+
+    private func schedulePush() {
+        rebuild?.cancel()
+        rebuild = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return }
+            push()
+        }
     }
 
     private func push() {
