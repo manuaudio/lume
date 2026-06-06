@@ -55,27 +55,129 @@ struct SidebarView: View {
 
 private struct GroupsRegion: View {
     @Environment(AppState.self) private var app
+    @State private var creatingGroup = false
+    @State private var newGroupName = ""
 
     var body: some View {
-        Section("Groups") {
+        Section {
             if app.tags.isEmpty {
-                Text("No groups yet")
+                Text("Drag files onto a group, or tag from the editor header")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
             } else {
                 ForEach(app.tags, id: \.name) { tag in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.tag(tag.colorIndex))
-                            .frame(width: 9, height: 9)
-                        Text(tag.name).lineLimit(1)
-                        Spacer(minLength: 4)
-                        Text("\(tag.files.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    GroupHeaderRow(tag: tag)
+                    if app.isGroupExpanded(tag.name) {
+                        ForEach(app.groupFilePaths[tag.name] ?? [], id: \.self) { path in
+                            GroupMemberRow(tagName: tag.name, path: path)
+                        }
                     }
                 }
             }
+        } header: {
+            HStack {
+                Text("Groups")
+                Spacer()
+                Button { creatingGroup = true } label: {
+                    Image(systemName: "plus.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("New Group")
+            }
+        }
+        .alert("New Group", isPresented: $creatingGroup) {
+            TextField("Group name", text: $newGroupName)
+            Button("Create") {
+                app.createGroup(named: newGroupName)
+                newGroupName = ""
+            }
+            Button("Cancel", role: .cancel) { newGroupName = "" }
+        }
+    }
+}
+
+/// A tag's GROUP header: expand/collapse, color dot, member count. Drop a file
+/// here to tag it; right-click to recolor / rename / delete.
+private struct GroupHeaderRow: View {
+    let tag: Tag
+    @Environment(AppState.self) private var app
+    @State private var renaming = false
+    @State private var newName = ""
+    @State private var dropTargeted = false
+
+    var body: some View {
+        Button { app.toggleGroup(tag.name) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: app.isGroupExpanded(tag.name) ? "chevron.down" : "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
+                Circle().fill(Color.tag(tag.colorIndex)).frame(width: 9, height: 9)
+                Text(tag.name).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(tag.files.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(dropTargeted ? Color.accentColor.opacity(0.18) : Color.clear)
+        .dropDestination(for: URL.self) { urls, _ in
+            for u in urls { app.addTag(tag.name, toPath: u.path) }
+            if !app.isGroupExpanded(tag.name) { app.toggleGroup(tag.name) }
+            return !urls.isEmpty
+        } isTargeted: { dropTargeted = $0 }
+        .contextMenu {
+            Menu("Color") {
+                ForEach(0..<TagPalette.count, id: \.self) { i in
+                    Button(TagPalette.swatch(at: i).name) {
+                        app.recolorGroup(tag.name, colorIndex: i)
+                    }
+                }
+            }
+            Button("Rename…") { newName = tag.name; renaming = true }
+            Button("Delete Group", role: .destructive) { app.deleteGroup(tag.name) }
+        }
+        .alert("Rename Group", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Rename") { _ = app.renameGroup(tag.name, to: newName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Renaming to an existing group merges them.")
+        }
+    }
+}
+
+/// A file inside an expanded GROUP. Opens on click; right-click to untag.
+private struct GroupMemberRow: View {
+    let tagName: String
+    let path: String
+    @Environment(AppState.self) private var app
+
+    private var url: URL { URL(fileURLWithPath: path) }
+
+    var body: some View {
+        Button { app.choose(url) } label: {
+            HStack(spacing: 6) {
+                Spacer().frame(width: 14)
+                Image(systemName: symbolName(for: FileKind.detect(filename: url.lastPathComponent)))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Text(app.displayName(for: url)).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            app.selectedURL == url ? Color.accentColor.opacity(0.22) : Color.clear
+        )
+        .contextMenu {
+            Button("Remove from \(tagName)") { app.removeTag(tagName, fromPath: path) }
         }
     }
 }

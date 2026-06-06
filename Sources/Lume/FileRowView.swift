@@ -35,6 +35,7 @@ struct BrowserRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .draggable(node.url)
         .listRowBackground(
             app.selectedURL == node.url ? Color.accentColor.opacity(0.22) : Color.clear
         )
@@ -72,6 +73,7 @@ struct FavoriteRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .draggable(url)
         .listRowBackground(
             app.selectedURL == url ? Color.accentColor.opacity(0.22) : Color.clear
         )

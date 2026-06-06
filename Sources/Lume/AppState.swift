@@ -44,6 +44,11 @@ final class AppState {
     private(set) var tags: [Tag] = []
     private(set) var hiddenPaths: Set<String> = []
 
+    /// Tag names whose GROUP is expanded in the navigator.
+    private(set) var expandedGroups: Set<String> = []
+    /// Cached, display-name-sorted member paths per tag name (no disk access).
+    private(set) var groupFilePaths: [String: [String]] = [:]
+
     // MARK: - Internals
 
     private var loadedText: String?
@@ -70,6 +75,21 @@ final class AppState {
         favorites = library.favorites()
         tags = library.allTags()
         hiddenPaths = library.hiddenPaths()
+        rebuildGroups()
+    }
+
+    /// Recompute each tag's sorted member paths (pure, off the SwiftData objects).
+    private func rebuildGroups() {
+        guard let library else { return }
+        var map: [String: [String]] = [:]
+        for tag in tags {
+            let paths = Array(library.paths(taggedWith: tag.name))
+            map[tag.name] = GroupSort.sorted(paths) { library.displayName(for: $0) }
+        }
+        groupFilePaths = map
+        // Drop expansion state for tags that no longer exist.
+        let names = Set(tags.map(\.name))
+        expandedGroups.formIntersection(names)
     }
 
     // MARK: - Open folder
@@ -156,6 +176,71 @@ final class AppState {
     /// Whether a stored favorite is a folder (persisted via the "folder" sentinel).
     func favoriteIsFolder(_ favorite: Favorite) -> Bool {
         favorite.kindRaw == "folder"
+    }
+
+    // MARK: - Tags & GROUPS
+
+    /// Tags carried by the file at `url` (for the document tag header), by name.
+    func tags(forPath path: String) -> [Tag] {
+        (library?.meta(for: path)?.tags ?? []).sorted { $0.name < $1.name }
+    }
+
+    /// Expand / collapse a GROUP in the navigator.
+    func toggleGroup(_ name: String) {
+        if expandedGroups.contains(name) { expandedGroups.remove(name) }
+        else { expandedGroups.insert(name) }
+    }
+
+    func isGroupExpanded(_ name: String) -> Bool { expandedGroups.contains(name) }
+
+    /// Create a new, empty GROUP (idempotent by name).
+    func createGroup(named name: String) {
+        library?.createEmptyTag(named: name)
+        refreshLibrary()
+    }
+
+    /// Add `tagName` to the file at `path`, preserving its other metadata.
+    func addTag(_ tagName: String, toPath path: String) {
+        guard let library else { return }
+        let meta = library.meta(for: path)
+        var names = meta?.tags.map(\.name) ?? []
+        guard !names.contains(tagName) else { return }
+        names.append(tagName)
+        library.setMeta(path: path,
+                        info: meta?.info ?? "",
+                        tagNames: names,
+                        displayName: meta?.displayName ?? "")
+        refreshLibrary()
+    }
+
+    /// Remove ONE tag from ONE file (the group keeps existing even if emptied).
+    func removeTag(_ tagName: String, fromPath path: String) {
+        library?.removeTag(named: tagName, fromPath: path)
+        refreshLibrary()
+    }
+
+    @discardableResult
+    func renameGroup(_ oldName: String, to newName: String) -> Bool {
+        let ok = library?.renameTag(named: oldName, to: newName) ?? false
+        if ok { refreshLibrary() }
+        return ok
+    }
+
+    func recolorGroup(_ name: String, colorIndex: Int) {
+        library?.recolorTag(named: name, colorIndex: colorIndex)
+        refreshLibrary()
+    }
+
+    func deleteGroup(_ name: String) {
+        library?.deleteTag(named: name)
+        refreshLibrary()
+    }
+
+    /// Tag names the user can still add to `path` (not already applied), for the
+    /// add-tag popover's suggestions.
+    func tagSuggestions(forPath path: String) -> [Tag] {
+        let applied = Set(tags(forPath: path).map(\.name))
+        return tags.filter { !applied.contains($0.name) }
     }
 
     // MARK: - Display name

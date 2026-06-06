@@ -23,7 +23,11 @@ private struct DetailView: View {
         if let message = app.errorMessage {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if let url = app.selectedURL {
-            viewer(for: url)
+            VStack(spacing: 0) {
+                DocumentTagBar(url: url)
+                Divider()
+                viewer(for: url)
+            }
         } else {
             ContentUnavailableView("No File Selected", systemImage: "doc", description: Text("Pick a file in the sidebar."))
         }

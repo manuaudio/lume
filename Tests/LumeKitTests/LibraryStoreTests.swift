@@ -212,3 +212,111 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
     #expect(m?.displayName == "C")
     #expect(m?.tags.map(\.name) == ["work"])
 }
+
+// MARK: - Tag / GROUP management (Increment 4)
+
+@MainActor @Test func createEmptyTagPersistsAndIsIdempotent() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.createEmptyTag(named: "Spec")
+    #expect(store.allTags().map(\.name) == ["Spec"])
+    // Empty groups are valid and not auto-pruned; idempotent by name; blanks ignored.
+    store.createEmptyTag(named: "Spec")
+    store.createEmptyTag(named: "   ")
+    #expect(store.allTags().map(\.name) == ["Spec"])
+    #expect(store.paths(taggedWith: "Spec").isEmpty)
+}
+
+@MainActor @Test func removeTagFromFileKeepsEmptyGroup() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["solo"])
+    store.removeTag(named: "solo", fromPath: "/a.md")
+    #expect(store.paths(taggedWith: "solo").isEmpty)
+    // The group itself persists even when emptied (GROUPS design).
+    #expect(store.allTags().map(\.name) == ["solo"])
+}
+
+@MainActor @Test func renameTagWithoutClash() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["old"])
+    #expect(store.renameTag(named: "old", to: "new"))
+    #expect(store.allTags().map(\.name) == ["new"])
+    #expect(store.paths(taggedWith: "new") == ["/a.md"])
+    // Renaming a missing tag, to blank, or to the same name all fail.
+    #expect(store.renameTag(named: "ghost", to: "x") == false)
+    #expect(store.renameTag(named: "new", to: "  ") == false)
+    #expect(store.renameTag(named: "new", to: "new") == false)
+}
+
+@MainActor @Test func renameTagMergesOnNameClash() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["src"])
+    store.setMeta(path: "/b.md", info: "", tagNames: ["dst"])
+    #expect(store.renameTag(named: "src", to: "dst"))
+    #expect(store.allTags().map(\.name) == ["dst"])
+    #expect(store.paths(taggedWith: "dst") == ["/a.md", "/b.md"])
+}
+
+@MainActor @Test func deleteTagDetachesFromFiles() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a.md", info: "", tagNames: ["gone", "keep"])
+    store.deleteTag(named: "gone")
+    #expect(store.allTags().map(\.name) == ["keep"])
+    #expect(store.meta(for: "/a.md")?.tags.map(\.name) == ["keep"])
+}
+
+@MainActor @Test func recolorTagWrapsOutOfRange() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.createEmptyTag(named: "c")
+    store.recolorTag(named: "c", colorIndex: 5)
+    #expect(store.colorIndex(forTagNamed: "c") == 5)
+    // Out-of-range index wraps into the palette (never crashes).
+    store.recolorTag(named: "c", colorIndex: TagPalette.count + 2)
+    #expect(store.colorIndex(forTagNamed: "c") == TagPalette.wrap(TagPalette.count + 2))
+}
+
+@MainActor @Test func pruneOrphanTagsRemovesOnlyEmptyOnes() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.createEmptyTag(named: "empty")
+    store.setMeta(path: "/a", info: "", tagNames: ["used"])
+    #expect(store.pruneOrphanTags() == 1)
+    #expect(store.allTags().map(\.name) == ["used"])
+}
+
+@MainActor @Test func mergeTagsFoldsFilesAndAppliesColor() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a", info: "", tagNames: ["one"])
+    store.setMeta(path: "/b", info: "", tagNames: ["two"])
+    store.setMeta(path: "/c", info: "", tagNames: ["three"])
+    #expect(store.mergeTags(["one", "two", "three"], into: "all", colorIndex: 3))
+    #expect(store.allTags().map(\.name) == ["all"])
+    #expect(store.paths(taggedWith: "all") == ["/a", "/b", "/c"])
+    #expect(store.colorIndex(forTagNamed: "all") == 3)
+}
+
+@MainActor @Test func taggedWithAllAndAny() throws {
+    let (store, container) = try makeStore()
+    defer { withExtendedLifetime(container) {} }
+
+    store.setMeta(path: "/a", info: "", tagNames: ["x", "y"])
+    store.setMeta(path: "/b", info: "", tagNames: ["x"])
+    #expect(store.paths(taggedWithAll: ["x", "y"]) == ["/a"])
+    #expect(store.paths(taggedWithAny: ["x", "y"]) == ["/a", "/b"])
+    #expect(store.paths(taggedWithAll: []).isEmpty)
+    #expect(store.paths(taggedWithAny: []).isEmpty)
+}
