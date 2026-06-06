@@ -5,13 +5,19 @@ import LumeKit
 @MainActor
 @Observable
 final class AppState {
-    /// The currently open folder (root of the sidebar tree).
+
+    // MARK: - Open Folder (browser)
+
+    /// The opened folder — the breadcrumb's home and the browser's ceiling.
     private(set) var rootURL: URL?
-    /// Top-level entries of the open folder (computed once on open, not in view body).
-    private(set) var rootChildren: [FileNode] = []
-    /// The file selected in the sidebar.
+    /// The directory currently shown in the Open Folder region (drill-in/up).
+    private(set) var browseURL: URL?
+
+    // MARK: - Selection / open document
+
+    /// The file selected in the sidebar (drives the detail pane).
     var selectedURL: URL?
-    /// The open document's text (bound to the editor). Nil when nothing/binary is selected.
+    /// The open document's text (bound to the editor). Nil when nothing/binary.
     var documentText: String?
     /// Kind of the current selection, drives which detail view shows.
     private(set) var selectedKind: FileKind = .unsupported
@@ -20,19 +26,63 @@ final class AppState {
     /// A user-facing, non-fatal error message for the detail pane.
     private(set) var errorMessage: String?
 
+    // MARK: - Filters (sidebar)
+
+    /// Hide directories in the browser (show files only).
+    var filesOnly = false
+    /// Include dotfiles / system-hidden entries in the browser.
+    var showBrowserHidden = false
+    /// Show user-hidden items in the Favorites region.
+    var showPinnedHidden = false
+    /// Case-insensitive name filter applied to browser/pinned files.
+    var browseFilter = ""
+
+    // MARK: - Library (SwiftData-backed)
+
+    private(set) var library: LibraryStore?
+    private(set) var favorites: [Favorite] = []
+    private(set) var tags: [Tag] = []
+    private(set) var hiddenPaths: Set<String> = []
+
+    // MARK: - Internals
+
     private var loadedText: String?
     private let files = FileService()
+    /// Main-actor enumeration cache; FSEvents invalidations bump its `revision`.
+    let cache = FileSystemCache()
+    private var watcher: DirectoryWatcher?
 
-    /// Kinds Lume edits as plain text in the editor (others get a viewer/placeholder).
+    /// Kinds Lume edits as plain text in the editor (others get a viewer).
     static let textEditableKinds: Set<FileKind> = [.markdown, .env, .code]
+
+    // MARK: - Library wiring
+
+    /// Connect the SwiftData-backed library (called once the container is ready).
+    func attach(library: LibraryStore) {
+        self.library = library
+        library.migrateBookmarksToFavorites()
+        refreshLibrary()
+    }
+
+    /// Re-read the cached library projections (favorites / tags / hidden paths).
+    func refreshLibrary() {
+        guard let library else { return }
+        favorites = library.favorites()
+        tags = library.allTags()
+        hiddenPaths = library.hiddenPaths()
+    }
+
+    // MARK: - Open folder
 
     /// Open a folder as the new root. Persists it for next launch.
     func openFolder(_ url: URL) {
         rootURL = url
+        browseURL = url
         selectedURL = nil
         documentText = nil
         errorMessage = nil
-        rootChildren = children(of: url)
+        cache.invalidateAll()
+        startWatching(url)
         Preferences.saveLastFolder(url)
     }
 
@@ -43,14 +93,82 @@ final class AppState {
         openFolder(url)
     }
 
-    /// Scan one directory level. Returns [] on failure (logged via errorMessage).
-    func children(of url: URL) -> [FileNode] {
-        do { return try files.enumerate(url) }
-        catch {
-            errorMessage = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
-            return []
+    /// Watch the open tree; an external change invalidates the affected
+    /// directories (so the browser re-reads just those) and refreshes the library.
+    private func startWatching(_ root: URL) {
+        watcher?.stop()
+        watcher = DirectoryWatcher(root: root) { [weak self] changed in
+            guard let self else { return }
+            for path in changed { self.cache.invalidate(path: path) }
+            self.refreshLibrary()
         }
     }
+
+    // MARK: - Browser navigation
+
+    /// Clickable path segments from the open folder down to the current directory.
+    var breadcrumb: [Breadcrumb.Segment] {
+        guard let browseURL, let rootURL else { return [] }
+        return Breadcrumb.segments(for: browseURL, home: rootURL)
+    }
+
+    /// Drill the browser into `url` (a directory).
+    func navigate(to url: URL) { browseURL = url }
+
+    /// Visible children of the current browse directory (cache-backed, filtered).
+    var browseChildren: [FileNode] {
+        _ = cache.revision   // observe FSEvents invalidations
+        guard let browseURL else { return [] }
+        let nodes = cache.children(of: browseURL, includeHidden: showBrowserHidden)
+        return VisibleChildrenFilter.apply(
+            nodes,
+            filesOnly: filesOnly,
+            isPinned: false,
+            showPinnedHidden: showPinnedHidden,
+            hiddenPaths: hiddenPaths,
+            browseFilter: browseFilter
+        )
+    }
+
+    // MARK: - Favorites (pinning)
+
+    /// Pinned items, minus user-hidden ones unless `showPinnedHidden`.
+    var visibleFavorites: [Favorite] {
+        favorites.filter { showPinnedHidden || !hiddenPaths.contains($0.path) }
+    }
+
+    func isFavorite(_ url: URL) -> Bool {
+        library?.isFavorite(path: url.path) ?? false
+    }
+
+    func toggleFavorite(_ node: FileNode) {
+        guard let library else { return }
+        if library.isFavorite(path: node.url.path) {
+            library.removeFavorite(path: node.url.path)
+        } else if node.isDirectory {
+            library.addFavoriteFolder(path: node.url.path)
+        } else {
+            library.addFavorite(path: node.url.path, kind: node.kind)
+        }
+        refreshLibrary()
+    }
+
+    /// Whether a stored favorite is a folder (persisted via the "folder" sentinel).
+    func favoriteIsFolder(_ favorite: Favorite) -> Bool {
+        favorite.kindRaw == "folder"
+    }
+
+    // MARK: - Display name
+
+    /// The label to show for a path: user override → auto parent-folder name for
+    /// ambiguous filenames → the filename itself.
+    func displayName(for url: URL) -> String {
+        library?.displayName(for: url.path)
+            ?? DisplayName.autoName(for: url)
+            ?? url.lastPathComponent
+    }
+
+    // MARK: - Selection / document
 
     /// Choose a file from the sidebar: highlight immediately, then load.
     func choose(_ url: URL) {
@@ -99,6 +217,7 @@ final class AppState {
             try TextDocument(url: url, text: text).save()
             loadedText = text
             isDirty = false
+            cache.invalidate(path: url.deletingLastPathComponent().path)
         } catch {
             errorMessage = "Couldn't save \(url.lastPathComponent): \(error.localizedDescription)"
         }
