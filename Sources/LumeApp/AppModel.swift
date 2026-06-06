@@ -16,7 +16,6 @@ struct TrashRestore: Sendable {
 @Observable
 final class AppModel {
     var rootFolder: URL?
-    var tree: [FileNode] = []
     var selectedFile: URL?
 
     // Browser
@@ -183,15 +182,6 @@ final class AppModel {
         SecurityScopedAccess.beginAccess(url)
         rootFolder = url
         selectedFile = nil
-        reloadTree()
-    }
-
-    func reloadTree() {
-        guard let root = rootFolder else {
-            tree = []
-            return
-        }
-        tree = (try? files.enumerate(root)) ?? []
     }
 
     func children(of node: FileNode, includeHidden: Bool = false) -> [FileNode] {
