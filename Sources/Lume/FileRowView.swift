@@ -49,27 +49,46 @@ struct BrowserRow: View {
     }
 }
 
-/// A row in the Favorites region. Files open; folders jump the browser into them.
+/// A row in the Favorites region. Pinned folders expand inline (the pinned-hidden
+/// filter applies); a single click opens a file or toggles a folder; double-click
+/// drills the browser into a folder. Drop files here to pin them.
 struct FavoriteRow: View {
-    let favorite: Favorite
+    let item: AppState.FavoriteRowItem
     @Environment(AppState.self) private var app
 
-    private var url: URL { URL(fileURLWithPath: favorite.path) }
-    private var isFolder: Bool { app.favoriteIsFolder(favorite) }
-    private var rowID: String { AppState.favoriteRowID(favorite, isFolder: isFolder) }
+    private var url: URL { item.url }
+    private var rowID: String { AppState.favoriteURLRowID(url, isDirectory: item.isDirectory) }
 
     var body: some View {
         Button {
             let f = NSEvent.modifierFlags
             app.handleRowTap(rowID, command: f.contains(.command), shift: f.contains(.shift)) {
-                if isFolder { app.navigate(to: url) } else { app.choose(url) }
+                if item.isDirectory { app.toggleFavoriteExpanded(url) } else { app.choose(url) }
             }
         } label: {
-            RowLabel(url: url, isDirectory: isFolder,
-                     pinned: false, hidden: app.isHidden(url), showsChevron: false)
+            HStack(spacing: 2) {
+                Color.clear.frame(width: CGFloat(item.depth) * 12)
+                if item.isDirectory {
+                    Image(systemName: app.isFavoriteExpanded(url) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture { app.toggleFavoriteExpanded(url) }
+                } else {
+                    Color.clear.frame(width: 12)
+                }
+                RowLabel(url: url, isDirectory: item.isDirectory,
+                         pinned: item.isPinRoot, hidden: app.isHidden(url))
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .modifier(FileRowActions(url: url, rowID: rowID, isDirectory: isFolder))
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            if item.isDirectory { app.navigate(to: url) } else { app.choose(url) }
+        })
+        .dropDestination(for: URL.self) { urls, _ in app.pinDropped(urls); return !urls.isEmpty }
+        .modifier(FileRowActions(url: url, rowID: rowID, isDirectory: item.isDirectory))
     }
 }
 

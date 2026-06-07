@@ -245,16 +245,23 @@ private struct GroupMemberRow: View {
 
 private struct FavoritesRegion: View {
     @Environment(AppState.self) private var app
+    @State private var dropTargeted = false
 
     var body: some View {
         Section("Favorites") {
-            if app.visibleFavorites.isEmpty {
-                Text("Pin files and folders here")
+            let items = app.favoriteRowItems
+            if items.isEmpty {
+                Text("Pin files and folders here — or drag them in")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(dropTargeted ? .primary : .tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .dropDestination(for: URL.self) { urls, _ in
+                        app.pinDropped(urls); return !urls.isEmpty
+                    } isTargeted: { dropTargeted = $0 }
             } else {
-                ForEach(app.visibleFavorites, id: \.path) { fav in
-                    FavoriteRow(favorite: fav)
+                ForEach(items) { item in
+                    FavoriteRow(item: item)
                 }
             }
         }

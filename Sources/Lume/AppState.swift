@@ -48,6 +48,8 @@ final class AppState {
     private(set) var focusID: String?
     /// Folders expanded inline in the Open Folder tree (by path).
     private(set) var expandedPaths: Set<String> = []
+    /// Pinned folders expanded inline in the Favorites region (by path).
+    private(set) var expandedFavorites: Set<String> = []
     /// Accumulates type-ahead characters; reset after a short idle by the view.
     var typeaheadBuffer = ""
     /// The undo manager backing file operations (⌘Z).
@@ -258,6 +260,76 @@ final class AppState {
         favorite.kindRaw == "folder"
     }
 
+    /// Filtered children of a pinned folder (applies the pinned-hidden filter).
+    func visiblePinnedChildren(of url: URL) -> [FileNode] {
+        let nodes = cache.children(of: url, includeHidden: showBrowserHidden)
+        return VisibleChildrenFilter.apply(
+            nodes,
+            filesOnly: filesOnly,
+            isPinned: true,
+            showPinnedHidden: showPinnedHidden,
+            hiddenPaths: hiddenPaths,
+            browseFilter: browseFilter
+        )
+    }
+
+    /// A row in the Favorites region (a pin root, or a child of an expanded pin).
+    struct FavoriteRowItem: Identifiable, Equatable {
+        let url: URL
+        let isDirectory: Bool
+        let depth: Int
+        let isPinRoot: Bool
+        var id: String { "\(isDirectory ? "d" : "f")|\(url.path)" }
+    }
+
+    /// Flattened Favorites rows: each visible pin, plus the children of expanded
+    /// pinned folders (recursively).
+    var favoriteRowItems: [FavoriteRowItem] {
+        _ = cache.revision
+        var out: [FavoriteRowItem] = []
+        func walk(_ dir: URL, _ depth: Int) {
+            for node in visiblePinnedChildren(of: dir) {
+                out.append(FavoriteRowItem(url: node.url, isDirectory: node.isDirectory,
+                                           depth: depth, isPinRoot: false))
+                if node.isDirectory, expandedFavorites.contains(node.url.path) {
+                    walk(node.url, depth + 1)
+                }
+            }
+        }
+        for fav in visibleFavorites {
+            let url = URL(fileURLWithPath: fav.path)
+            let isDir = favoriteIsFolder(fav)
+            out.append(FavoriteRowItem(url: url, isDirectory: isDir, depth: 0, isPinRoot: true))
+            if isDir, expandedFavorites.contains(fav.path) { walk(url, 1) }
+        }
+        return out
+    }
+
+    func isFavoriteExpanded(_ url: URL) -> Bool { expandedFavorites.contains(url.path) }
+
+    func toggleFavoriteExpanded(_ url: URL) {
+        if expandedFavorites.contains(url.path) { expandedFavorites.remove(url.path) }
+        else { expandedFavorites.insert(url.path) }
+    }
+
+    /// A "fav|…" row id for any URL shown in the Favorites region.
+    static func favoriteURLRowID(_ url: URL, isDirectory: Bool) -> String {
+        "fav|\(isDirectory ? "d" : "f")|\(url.path)"
+    }
+
+    /// Pin files dropped onto the Favorites region.
+    func pinDropped(_ urls: [URL]) {
+        guard let library else { return }
+        for url in urls {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !library.isFavorite(path: url.path) {
+                if isDir { library.addFavoriteFolder(path: url.path) }
+                else { library.addFavorite(path: url.path, kind: FileKind.detect(filename: url.lastPathComponent)) }
+            }
+        }
+        refreshLibrary()
+    }
+
     // MARK: - Tags & GROUPS
 
     /// Tags carried by the file at `url` (for the document tag header), by name.
@@ -357,8 +429,8 @@ final class AppState {
         ids += GroupRowOrder.ids(tagNames: tags.map(\.name),
                                  expandedGroups: expandedGroups,
                                  groupFilePaths: groupFilePaths)
-        for fav in visibleFavorites {
-            ids.append(Self.favoriteRowID(fav, isFolder: favoriteIsFolder(fav)))
+        for item in favoriteRowItems {
+            ids.append(Self.favoriteURLRowID(item.url, isDirectory: item.isDirectory))
         }
         for row in browserRows {
             ids.append(Self.browseRowID(row.node))
