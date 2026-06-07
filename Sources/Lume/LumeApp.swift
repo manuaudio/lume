@@ -33,7 +33,7 @@ struct LumeApp: App {
                 .frame(minWidth: 720, minHeight: 440)
                 .task {
                     app.attach(library: LibraryStore(context: container.mainContext))
-                    app.restoreLastFolder()
+                    if !app.applyLaunchEnvironment() { app.restoreLastFolder() }
                 }
         }
         .defaultSize(width: 1100, height: 720)

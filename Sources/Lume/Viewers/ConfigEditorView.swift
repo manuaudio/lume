@@ -52,12 +52,22 @@ struct ConfigEditorView: View {
                 }
             }
         }
-        .onAppear { reload() }
-        .onChange(of: app.selectedURL) { _, _ in reload() }
+        .onAppear { applyDefaultRaw(); reload() }
+        .onChange(of: app.selectedURL) { _, _ in applyDefaultRaw(); reload() }
         .onChange(of: app.documentText) { _, newText in
             if newText != lastPushed { reload() }
         }
         .onChange(of: root) { _, _ in reserialize() }
+        .onChange(of: raw) { _, newRaw in
+            if let path = app.selectedURL?.path { app.setConfigShowsRaw(newRaw, forPath: path) }
+        }
+    }
+
+    /// Initialize the Structured/Raw choice from the per-file override or the
+    /// global default (View ▸ Structured Config Editor).
+    private func applyDefaultRaw() {
+        guard let path = app.selectedURL?.path else { return }
+        raw = app.configShowsRaw(forPath: path)
     }
 
     private func reload() {

@@ -72,6 +72,7 @@ struct LumeCommands: Commands {
         CommandGroup(after: .toolbar) {
             Toggle("Document Tag Header", isOn: Bindable(app).showEditorTags)
                 .keyboardShortcut("t", modifiers: [.shift, .command])
+            Toggle("Structured Config Editor", isOn: Bindable(app).configStructuredByDefault)
             Divider()
             Toggle("Show Hidden Files", isOn: Bindable(app).showBrowserHidden)
                 .keyboardShortcut(".", modifiers: [.shift, .command])

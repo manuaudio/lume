@@ -12,6 +12,27 @@ struct ContentView: View {
         } detail: {
             DetailView()
         }
+        .modifier(ModifierPeekMonitor())
+    }
+}
+
+/// Tracks the ⌃ key so the sidebar can briefly reveal hidden items while held.
+private struct ModifierPeekMonitor: ViewModifier {
+    @Environment(AppState.self) private var app
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                    app.peeking = event.modifierFlags.contains(.control)
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
     }
 }
 

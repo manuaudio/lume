@@ -38,6 +38,28 @@ final class AppState {
     /// Case-insensitive name filter applied to browser/pinned files.
     var browseFilter = ""
 
+    /// True while the user holds ⌃ to peek — temporarily reveals hidden items.
+    var peeking = false
+
+    /// Effective hidden visibility (real toggle OR a transient ⌃-peek).
+    var effectiveShowBrowserHidden: Bool { showBrowserHidden || peeking }
+    var effectiveShowPinnedHidden: Bool { showPinnedHidden || peeking }
+
+    /// Whether config files default to the structured editor (else Raw). Persisted.
+    var configStructuredByDefault: Bool =
+        (UserDefaults.standard.object(forKey: "configStructuredByDefault") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(configStructuredByDefault, forKey: "configStructuredByDefault") }
+    }
+    /// Per-file Structured/Raw overrides (true = Raw) for the current session.
+    private var configRawOverrides: [String: Bool] = [:]
+
+    func configShowsRaw(forPath path: String) -> Bool {
+        configRawOverrides[path] ?? !configStructuredByDefault
+    }
+    func setConfigShowsRaw(_ raw: Bool, forPath path: String) {
+        configRawOverrides[path] = raw
+    }
+
     // MARK: - Multi-selection (Finder-style)
 
     /// The set of selected sidebar row ids (across all regions).
@@ -142,6 +164,22 @@ final class AppState {
         Preferences.saveLastFolder(url)
     }
 
+    /// Honor LUME_OPEN_FOLDER / LUME_OPEN_FILE launch environment (dev / scripting
+    /// hand-off). Returns true if it opened a folder (so launch can skip restore).
+    @discardableResult
+    func applyLaunchEnvironment() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        var openedFolder = false
+        if let folder = env["LUME_OPEN_FOLDER"], !folder.isEmpty {
+            openFolder(URL(fileURLWithPath: folder))
+            openedFolder = true
+        }
+        if let file = env["LUME_OPEN_FILE"], !file.isEmpty {
+            choose(URL(fileURLWithPath: file))
+        }
+        return openedFolder
+    }
+
     /// Restore the last folder, if its bookmark still resolves.
     func restoreLastFolder() {
         guard let url = Preferences.loadLastFolder() else { return }
@@ -189,12 +227,12 @@ final class AppState {
 
     /// Filtered children of one browser directory (cache-backed).
     func visibleChildren(of url: URL) -> [FileNode] {
-        let nodes = cache.children(of: url, includeHidden: showBrowserHidden)
+        let nodes = cache.children(of: url, includeHidden: effectiveShowBrowserHidden)
         return VisibleChildrenFilter.apply(
             nodes,
             filesOnly: filesOnly,
             isPinned: false,
-            showPinnedHidden: showPinnedHidden,
+            showPinnedHidden: effectiveShowPinnedHidden,
             hiddenPaths: hiddenPaths,
             browseFilter: browseFilter
         )
@@ -234,9 +272,9 @@ final class AppState {
 
     // MARK: - Favorites (pinning)
 
-    /// Pinned items, minus user-hidden ones unless `showPinnedHidden`.
+    /// Pinned items, minus user-hidden ones unless `showPinnedHidden` (or peeking).
     var visibleFavorites: [Favorite] {
-        favorites.filter { showPinnedHidden || !hiddenPaths.contains($0.path) }
+        favorites.filter { effectiveShowPinnedHidden || !hiddenPaths.contains($0.path) }
     }
 
     func isFavorite(_ url: URL) -> Bool {
@@ -266,12 +304,12 @@ final class AppState {
 
     /// Filtered children of a pinned folder (applies the pinned-hidden filter).
     func visiblePinnedChildren(of url: URL) -> [FileNode] {
-        let nodes = cache.children(of: url, includeHidden: showBrowserHidden)
+        let nodes = cache.children(of: url, includeHidden: effectiveShowBrowserHidden)
         return VisibleChildrenFilter.apply(
             nodes,
             filesOnly: filesOnly,
             isPinned: true,
-            showPinnedHidden: showPinnedHidden,
+            showPinnedHidden: effectiveShowPinnedHidden,
             hiddenPaths: hiddenPaths,
             browseFilter: browseFilter
         )
