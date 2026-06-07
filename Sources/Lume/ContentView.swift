@@ -24,8 +24,10 @@ private struct DetailView: View {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if let url = app.selectedURL {
             VStack(spacing: 0) {
-                DocumentTagBar(url: url)
-                Divider()
+                if app.showEditorTags {
+                    DocumentTagBar(url: url)
+                    Divider()
+                }
                 viewer(for: url)
             }
         } else {

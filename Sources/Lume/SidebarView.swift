@@ -14,6 +14,7 @@ struct SidebarView: View {
                     OpenFolderRegion()
                 }
                 .listStyle(.sidebar)
+                .onKeyPress { handleKey($0) }
                 if !app.selectedRowIDs.isEmpty {
                     Divider()
                     SelectionActionBar()
@@ -31,7 +32,14 @@ struct SidebarView: View {
                 }
             }
         }
+        .alert("Rename", isPresented: bindableApp.presentingRename) {
+            TextField("Name", text: bindableApp.renameText)
+            Button("Rename") { app.commitRename() }
+            Button("Cancel", role: .cancel) {}
+        }
     }
+
+    private var bindableApp: Bindable<AppState> { Bindable(app) }
 
     private var emptyState: some View {
         ContentUnavailableView {
@@ -52,6 +60,44 @@ struct SidebarView: View {
         if panel.runModal() == .OK, let url = panel.url {
             app.openFolder(url)
         }
+    }
+
+    /// Finder-style keyboard navigation over the whole sidebar.
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        let shift = press.modifiers.contains(.shift)
+        let command = press.modifiers.contains(.command)
+
+        switch press.key {
+        case .upArrow:
+            app.resetTypeahead()
+            shift ? app.extendSelection(by: -1) : app.moveSelection(by: -1)
+            return .handled
+        case .downArrow:
+            app.resetTypeahead()
+            shift ? app.extendSelection(by: 1) : app.moveSelection(by: 1)
+            return .handled
+        case .leftArrow:
+            app.resetTypeahead(); app.collapseOrAscend(); return .handled
+        case .rightArrow:
+            app.resetTypeahead(); app.expandOrDescend(); return .handled
+        case .return:
+            app.resetTypeahead(); app.openOrDrillSelected(); return .handled
+        case .escape:
+            app.resetTypeahead(); app.clearSelection(); return .handled
+        default:
+            break
+        }
+
+        if command, press.characters == "a" {
+            app.selectAllRows(); return .handled
+        }
+        // Type-ahead: a printable character with no command/control.
+        if !command, !press.modifiers.contains(.control),
+           let ch = press.characters.first,
+           ch.isLetter || ch.isNumber || ch == "." || ch == "_" || ch == "-" {
+            app.typeaheadAppend(ch); return .handled
+        }
+        return .ignored
     }
 }
 
@@ -222,14 +268,14 @@ private struct OpenFolderRegion: View {
 
     var body: some View {
         Section {
-            let children = app.browseChildren
-            if children.isEmpty {
+            let rows = app.browserRows
+            if rows.isEmpty {
                 Text(app.browseFilter.isEmpty ? "Empty folder" : "No matches")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
             } else {
-                ForEach(children) { node in
-                    BrowserRow(node: node)
+                ForEach(rows) { row in
+                    BrowserRow(item: row)
                 }
             }
         } header: {
@@ -306,6 +352,7 @@ private struct SelectionActionBar: View {
 
 private struct SidebarFilterBar: View {
     @Environment(AppState.self) private var app
+    @FocusState private var filterFocused: Bool
 
     var body: some View {
         @Bindable var app = app
@@ -315,6 +362,8 @@ private struct SidebarFilterBar: View {
                     .foregroundStyle(.secondary)
                 TextField("Filter", text: $app.browseFilter)
                     .textFieldStyle(.plain)
+                    .focused($filterFocused)
+                    .onChange(of: app.focusFilterRequested) { _, _ in filterFocused = true }
                 if !app.browseFilter.isEmpty {
                     Button { app.browseFilter = "" } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)

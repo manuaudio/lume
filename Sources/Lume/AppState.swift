@@ -44,6 +44,12 @@ final class AppState {
     private(set) var selectedRowIDs: Set<String> = []
     /// Anchor for ⇧-range selection.
     private(set) var anchorID: String?
+    /// Keyboard focus row (the moving end of a ⇧-range).
+    private(set) var focusID: String?
+    /// Folders expanded inline in the Open Folder tree (by path).
+    private(set) var expandedPaths: Set<String> = []
+    /// Accumulates type-ahead characters; reset after a short idle by the view.
+    var typeaheadBuffer = ""
     /// The undo manager backing file operations (⌘Z).
     let undoManager = UndoManager()
 
@@ -62,6 +68,14 @@ final class AppState {
     var presentingNewGroup = false
     /// Bound to the New Group dialog's text field.
     var newGroupName = ""
+    /// Drives the centralized Rename dialog.
+    var presentingRename = false
+    var renameText = ""
+    private(set) var renameURL: URL?
+    /// Toggled by ⌘F to focus the sidebar filter field.
+    var focusFilterRequested = false
+    /// When true, the editor's document tag header is shown.
+    var showEditorTags = true
 
     // MARK: - Internals
 
@@ -116,6 +130,7 @@ final class AppState {
         documentText = nil
         errorMessage = nil
         clearSelection()
+        expandedPaths.removeAll()
         cache.invalidateAll()
         startWatching(url)
         Preferences.saveLastFolder(url)
@@ -166,11 +181,9 @@ final class AppState {
         return browseURL.path != rootURL.path
     }
 
-    /// Visible children of the current browse directory (cache-backed, filtered).
-    var browseChildren: [FileNode] {
-        _ = cache.revision   // observe FSEvents invalidations
-        guard let browseURL else { return [] }
-        let nodes = cache.children(of: browseURL, includeHidden: showBrowserHidden)
+    /// Filtered children of one browser directory (cache-backed).
+    func visibleChildren(of url: URL) -> [FileNode] {
+        let nodes = cache.children(of: url, includeHidden: showBrowserHidden)
         return VisibleChildrenFilter.apply(
             nodes,
             filesOnly: filesOnly,
@@ -179,6 +192,38 @@ final class AppState {
             hiddenPaths: hiddenPaths,
             browseFilter: browseFilter
         )
+    }
+
+    /// One row of the Open Folder tree, depth-annotated for indentation.
+    struct BrowserRowItem: Identifiable, Equatable {
+        let node: FileNode
+        let depth: Int
+        var id: String { node.url.path }
+    }
+
+    /// Flattened tree from `browseURL`, expanding `expandedPaths`. Drives both
+    /// the rendered rows (with indent) and the keyboard traversal order.
+    var browserRows: [BrowserRowItem] {
+        _ = cache.revision   // observe FSEvents invalidations
+        guard let browseURL else { return [] }
+        var out: [BrowserRowItem] = []
+        func walk(_ dir: URL, _ depth: Int) {
+            for node in visibleChildren(of: dir) {
+                out.append(BrowserRowItem(node: node, depth: depth))
+                if node.isDirectory, expandedPaths.contains(node.url.path) {
+                    walk(node.url, depth + 1)
+                }
+            }
+        }
+        walk(browseURL, 0)
+        return out
+    }
+
+    func isExpanded(_ url: URL) -> Bool { expandedPaths.contains(url.path) }
+
+    func toggleExpanded(_ url: URL) {
+        if expandedPaths.contains(url.path) { expandedPaths.remove(url.path) }
+        else { expandedPaths.insert(url.path) }
     }
 
     // MARK: - Favorites (pinning)
@@ -315,8 +360,8 @@ final class AppState {
         for fav in visibleFavorites {
             ids.append(Self.favoriteRowID(fav, isFolder: favoriteIsFolder(fav)))
         }
-        for node in browseChildren {
-            ids.append(Self.browseRowID(node))
+        for row in browserRows {
+            ids.append(Self.browseRowID(row.node))
         }
         return ids
     }
@@ -327,6 +372,7 @@ final class AppState {
     func selectSingle(_ id: String) {
         selectedRowIDs = [id]
         anchorID = id
+        focusID = id
     }
 
     /// ⌘ / ⇧ click: extend the multi-selection without activating the row.
@@ -341,11 +387,13 @@ final class AppState {
         )
         selectedRowIDs = result.selection
         anchorID = result.anchor
+        focusID = result.focus
     }
 
     func clearSelection() {
         selectedRowIDs = []
         anchorID = nil
+        focusID = nil
     }
 
     /// Route a row tap: ⌘/⇧ extend the multi-selection; a plain click collapses
@@ -356,6 +404,164 @@ final class AppState {
         } else {
             selectSingle(id)
             activate()
+        }
+    }
+
+    // MARK: - Keyboard navigation
+
+    /// The single row the keyboard acts from (sole selection, else focus/anchor).
+    private var keyboardCurrent: String? {
+        if selectedRowIDs.count == 1 { return selectedRowIDs.first }
+        return focusID ?? anchorID
+    }
+
+    var soleSelectedID: String? {
+        if selectedRowIDs.count == 1 { return selectedRowIDs.first }
+        return focusID
+    }
+
+    private func isDirectoryRow(_ id: String) -> Bool {
+        if id.hasPrefix("group|g|") { return true }
+        let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+        return parts.count >= 2 && parts[1] == "d"
+    }
+
+    /// ↑/↓ — move the single selection one row.
+    func moveSelection(by step: Int) {
+        guard let r = RowSelection.move(from: keyboardCurrent, in: visibleRowOrder, by: step) else { return }
+        selectedRowIDs = r.selection
+        anchorID = r.anchor
+        focusID = r.anchor
+        openIfSingleFile()
+    }
+
+    /// ⇧↑/⇧↓ — extend the contiguous selection.
+    func extendSelection(by step: Int) {
+        let order = visibleRowOrder
+        guard let anchor = anchorID, let focus = focusID,
+              let r = RowSelection.extend(anchor: anchor, focus: focus, in: order, by: step) else {
+            moveSelection(by: step); return
+        }
+        selectedRowIDs = r.selection
+        focusID = r.focus
+    }
+
+    /// ⌘A — select every visible row.
+    func selectAllRows() {
+        let all = RowSelection.all(in: visibleRowOrder)
+        selectedRowIDs = all
+        anchorID = visibleRowOrder.first
+        focusID = visibleRowOrder.last
+    }
+
+    /// Open the file if exactly one (non-directory) row is selected.
+    private func openIfSingleFile() {
+        guard let id = soleSelectedID, !isDirectoryRow(id), let url = url(forRowID: id) else { return }
+        choose(url)
+    }
+
+    /// Return / ⌘↓ — open a file, drill into a browser folder, or toggle a group.
+    func openOrDrillSelected() {
+        guard let id = soleSelectedID else { return }
+        if id.hasPrefix("group|g|"), case let .header(name)? = GroupRowID.decode(id) {
+            toggleGroup(name); return
+        }
+        guard let url = url(forRowID: id) else { return }
+        if isDirectoryRow(id) { navigate(to: url) } else { choose(url) }
+    }
+
+    /// → — expand a collapsed browser folder, else move into it.
+    func expandOrDescend() {
+        guard let id = soleSelectedID, isDirectoryRow(id),
+              id.hasPrefix("browse|"), let url = url(forRowID: id) else { return }
+        if !isExpanded(url) { toggleExpanded(url) } else { moveSelection(by: 1) }
+    }
+
+    /// ← — collapse an expanded browser folder, else jump to its parent row.
+    func collapseOrAscend() {
+        guard let id = soleSelectedID else { return }
+        if id.hasPrefix("browse|"), isDirectoryRow(id),
+           let url = url(forRowID: id), isExpanded(url) {
+            toggleExpanded(url); return
+        }
+        selectParentRow(of: id)
+    }
+
+    private func selectParentRow(of id: String) {
+        guard id.hasPrefix("browse|") || id.hasPrefix("fav|") else { return }
+        let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return }
+        let parent = URL(fileURLWithPath: String(parts[2])).deletingLastPathComponent()
+        let parentID = "\(parts[0])|d|\(parent.path)"
+        if visibleRowOrder.contains(parentID) { selectSingle(parentID) }
+    }
+
+    // MARK: - Keyboard-driven actions on the selection
+
+    func trashSelection() { moveToTrash(selectedURLs) }
+
+    func duplicateSelection() {
+        if let id = soleSelectedID, !isDirectoryRow(id), let url = url(forRowID: id) {
+            duplicate(url)
+        } else if let first = selectedURLs.first {
+            duplicate(first)
+        }
+    }
+
+    func pinSelection() {
+        for id in visibleRowOrder where selectedRowIDs.contains(id) {
+            if let url = url(forRowID: id) { toggleFavorite(url: url, isDirectory: isDirectoryRow(id)) }
+        }
+    }
+
+    /// The URL the rename command should target (sole selection or open doc).
+    var renameTargetURL: URL? {
+        if let id = soleSelectedID, let url = url(forRowID: id) { return url }
+        return selectedURL
+    }
+
+    /// Open the centralized Rename dialog for a URL (or the current target).
+    func beginRename(_ url: URL? = nil) {
+        guard let target = url ?? renameTargetURL else { return }
+        renameURL = target
+        renameText = target.lastPathComponent
+        presentingRename = true
+    }
+
+    func commitRename() {
+        if let url = renameURL { rename(url, to: renameText) }
+        presentingRename = false
+    }
+
+    /// Focus the sidebar filter field (⌘F).
+    func requestFilterFocus() { focusFilterRequested.toggle() }
+
+    // MARK: - Type-ahead
+
+    /// Append a typed character and jump to the first visible row whose name
+    /// starts with the accumulated buffer.
+    func typeaheadAppend(_ character: Character) {
+        typeaheadBuffer.append(character)
+        jumpToTypeahead()
+    }
+
+    func resetTypeahead() { typeaheadBuffer = "" }
+
+    private func jumpToTypeahead() {
+        let needle = typeaheadBuffer.lowercased()
+        guard !needle.isEmpty else { return }
+        for id in visibleRowOrder {
+            let name: String
+            if let url = url(forRowID: id) {
+                name = displayName(for: url).lowercased()
+            } else if case let .header(tagName)? = GroupRowID.decode(id) {
+                name = tagName.lowercased()
+            } else { continue }
+            if name.hasPrefix(needle) {
+                selectSingle(id)
+                openIfSingleFile()
+                return
+            }
         }
     }
 

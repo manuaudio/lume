@@ -20,7 +20,7 @@ struct LumeCommands: Commands {
                 .disabled(app.browseURL == nil)
         }
 
-        // Edit — route Undo/Redo through our file-ops UndoManager.
+        // Edit — Undo/Redo route through the file-ops UndoManager.
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { app.undoManager.undo() }
                 .keyboardShortcut("z", modifiers: .command)
@@ -33,17 +33,33 @@ struct LumeCommands: Commands {
             Button("Copy Paths") { app.copySelectedPaths() }
                 .keyboardShortcut("c", modifiers: [.option, .command])
                 .disabled(app.selectedURLs.isEmpty)
+            Button("Duplicate") { app.duplicateSelection() }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(app.selectedURLs.isEmpty)
+            Button("Move to Trash") { app.trashSelection() }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(app.selectedURLs.isEmpty)
         }
 
-        // File actions on the selection
-        CommandMenu("File Actions") {
+        // Navigate
+        CommandMenu("Navigate") {
+            Button("Open / Drill In") { app.openOrDrillSelected() }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Go Up") { app.goUp() }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+                .disabled(!app.canGoUp)
+            Button("Find in Sidebar") { app.requestFilterFocus() }
+                .keyboardShortcut("f", modifiers: .command)
+            Divider()
+            Button("Rename…") { app.beginRename() }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(app.renameTargetURL == nil)
+            Button("Pin / Unpin") { app.pinSelection() }
+                .keyboardShortcut("p", modifiers: [.control, .command])
+                .disabled(app.selectedURLs.isEmpty)
             Button("Reveal in Finder") { app.revealInFinder(app.selectedURLs) }
                 .keyboardShortcut("r", modifiers: [.shift, .command])
                 .disabled(app.selectedURLs.isEmpty)
-            Button("Move to Trash") { app.moveToTrash(app.selectedURLs) }
-                .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(app.selectedURLs.isEmpty)
-            Divider()
             Button("Hide / Unhide") { app.toggleHidden(app.selectedURLs) }
                 .keyboardShortcut("h", modifiers: [.shift, .command])
                 .disabled(app.selectedURLs.isEmpty)
@@ -52,15 +68,14 @@ struct LumeCommands: Commands {
                 .disabled(app.library == nil)
         }
 
-        // Go / View
-        CommandMenu("Go") {
-            Button("Enclosing Folder") { app.goUp() }
-                .keyboardShortcut(.upArrow, modifiers: .command)
-                .disabled(!app.canGoUp)
-        }
+        // View
         CommandGroup(after: .toolbar) {
+            Toggle("Document Tag Header", isOn: Bindable(app).showEditorTags)
+                .keyboardShortcut("t", modifiers: [.shift, .command])
+            Divider()
             Toggle("Show Hidden Files", isOn: Bindable(app).showBrowserHidden)
                 .keyboardShortcut(".", modifiers: [.shift, .command])
+            Toggle("Show Hidden Pins", isOn: Bindable(app).showPinnedHidden)
             Toggle("Files Only", isOn: Bindable(app).filesOnly)
         }
     }

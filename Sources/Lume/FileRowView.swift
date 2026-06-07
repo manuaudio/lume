@@ -2,30 +2,49 @@ import SwiftUI
 import AppKit
 import LumeKit
 
-/// A row in the Open Folder browser. Folders drill in; files open. ⌘/⇧ click
-/// extends the multi-selection.
+/// A row in the Open Folder tree. The disclosure chevron expands a folder inline;
+/// a single click selects (and opens a file / expands a folder); a double-click
+/// drills the browser root into the folder. ⌘/⇧ click extends the selection.
 struct BrowserRow: View {
-    let node: FileNode
+    let item: AppState.BrowserRowItem
     @Environment(AppState.self) private var app
 
+    private var node: FileNode { item.node }
     private var rowID: String { AppState.browseRowID(node) }
 
     var body: some View {
         Button {
             let f = NSEvent.modifierFlags
             app.handleRowTap(rowID, command: f.contains(.command), shift: f.contains(.shift)) {
-                if node.isDirectory { app.navigate(to: node.url) } else { app.choose(node.url) }
+                if node.isDirectory { app.toggleExpanded(node.url) } else { app.choose(node.url) }
             }
         } label: {
-            RowLabel(
-                url: node.url,
-                isDirectory: node.isDirectory,
-                pinned: app.isFavorite(node.url),
-                hidden: app.isHidden(node.url),
-                showsChevron: node.isDirectory
-            )
+            HStack(spacing: 2) {
+                // Indent per depth; folders show a disclosure chevron.
+                Color.clear.frame(width: CGFloat(item.depth) * 12)
+                if node.isDirectory {
+                    Image(systemName: app.isExpanded(node.url) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture { app.toggleExpanded(node.url) }
+                } else {
+                    Color.clear.frame(width: 12)
+                }
+                RowLabel(
+                    url: node.url,
+                    isDirectory: node.isDirectory,
+                    pinned: app.isFavorite(node.url),
+                    hidden: app.isHidden(node.url)
+                )
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            if node.isDirectory { app.navigate(to: node.url) } else { app.choose(node.url) }
+        })
         .modifier(FileRowActions(url: node.url, rowID: rowID, isDirectory: node.isDirectory))
     }
 }
@@ -96,8 +115,6 @@ struct FileRowActions<Extra: View>: ViewModifier {
     let isDirectory: Bool
     @ViewBuilder var extraMenu: () -> Extra
     @Environment(AppState.self) private var app
-    @State private var renaming = false
-    @State private var renameText = ""
     @State private var settingDisplayName = false
     @State private var displayNameText = ""
 
@@ -117,11 +134,6 @@ struct FileRowActions<Extra: View>: ViewModifier {
                     ? Color.accentColor.opacity(0.22) : Color.clear
             )
             .contextMenu { menu }
-            .alert("Rename", isPresented: $renaming) {
-                TextField("Name", text: $renameText)
-                Button("Rename") { app.rename(url, to: renameText) }
-                Button("Cancel", role: .cancel) {}
-            }
             .alert("Display Name", isPresented: $settingDisplayName) {
                 TextField("Display name (blank to clear)", text: $displayNameText)
                 Button("Set") { app.setDisplayName(url, to: displayNameText) }
@@ -140,7 +152,7 @@ struct FileRowActions<Extra: View>: ViewModifier {
         Divider()
         Button("New Folder") { app.newFolder() }
         if !multi {
-            Button("Rename…") { renameText = url.lastPathComponent; renaming = true }
+            Button("Rename…") { app.beginRename(url) }
             Button("Duplicate") { app.duplicate(url) }
             Button("Set Display Name…") {
                 displayNameText = app.library?.displayName(for: url.path) ?? ""
