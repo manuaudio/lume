@@ -7,6 +7,7 @@ struct DocumentTagBar: View {
     let url: URL
     @Environment(AppState.self) private var app
     @State private var adding = false
+    @State private var showingNotes = false
 
     var body: some View {
         let tags = app.tags(forPath: url.path)
@@ -15,17 +16,48 @@ struct DocumentTagBar: View {
                 TagChip(tag: tag) { app.removeTag(tag.name, fromPath: url.path) }
             }
             Button { adding = true } label: {
-                Label("Add Tag", systemImage: "tag")
-                    .font(.caption)
+                Label("Add Tag", systemImage: "tag").font(.caption)
             }
             .buttonStyle(.borderless)
             .popover(isPresented: $adding, arrowEdge: .bottom) {
                 AddTagPopover(url: url)
             }
             Spacer()
+            Button { showingNotes = true } label: {
+                Label("Notes", systemImage: app.info(forPath: url.path).isEmpty ? "note.text" : "note.text.badge.plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Notes for this file")
+            .popover(isPresented: $showingNotes, arrowEdge: .bottom) {
+                NotesPopover(url: url)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+}
+
+/// Free-text notes (FileMeta.info) for a file. Saved when the popover closes.
+private struct NotesPopover: View {
+    let url: URL
+    @Environment(AppState.self) private var app
+    @State private var text = ""
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Notes").font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(width: 320, height: 160)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
+        }
+        .padding(12)
+        .onAppear {
+            if !loaded { text = app.info(forPath: url.path); loaded = true }
+        }
+        .onDisappear { app.setInfo(text, forPath: url.path) }
     }
 }
 

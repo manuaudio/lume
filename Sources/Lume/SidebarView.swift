@@ -37,6 +37,8 @@ struct SidebarView: View {
             Button("Rename") { app.commitRename() }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(isPresented: bindableApp.presentingMultiTag) { MultiTagSheet() }
+        .sheet(isPresented: bindableApp.presentingTagManager) { TagManagerSheet() }
     }
 
     private var bindableApp: Bindable<AppState> { Bindable(app) }
@@ -124,9 +126,18 @@ private struct GroupsRegion: View {
                 }
             }
         } header: {
-            HStack {
+            HStack(spacing: 10) {
                 Text("Groups")
                 Spacer()
+                if !app.tags.isEmpty {
+                    Button { app.presentingTagManager = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Manage Tags")
+                    .accessibilityLabel("Manage Tags")
+                }
                 Button { app.beginNewGroup() } label: {
                     Image(systemName: "plus.circle")
                 }
@@ -337,6 +348,9 @@ private struct SelectionActionBar: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            Button { app.presentingMultiTag = true } label: { Image(systemName: "tag") }
+                .help("Tag selected")
+                .accessibilityLabel("Tag selected")
             Button { app.copySelectedPaths() } label: { Image(systemName: "doc.on.clipboard") }
                 .help("Copy Paths (⌥⌘C)")
                 .accessibilityLabel("Copy Paths")

@@ -167,6 +167,10 @@ struct FileRowActions<Extra: View>: ViewModifier {
         let multi = sel.count > 1
 
         extraMenu()
+        if multi {
+            Button("Tag \(sel.count) Items…") { app.presentingMultiTag = true }
+            Divider()
+        }
         Button(multi ? "Copy \(sel.count) Paths" : "Copy Path") { app.copySelectedPaths() }
         Divider()
         Button("New Folder") { app.newFolder() }

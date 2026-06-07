@@ -78,6 +78,10 @@ final class AppState {
     var focusFilterRequested = false
     /// When true, the editor's document tag header is shown.
     var showEditorTags = true
+    /// Drives the multi-file Tag sheet.
+    var presentingMultiTag = false
+    /// Drives the Tag Manager sheet.
+    var presentingTagManager = false
 
     // MARK: - Internals
 
@@ -399,6 +403,50 @@ final class AppState {
     func tagSuggestions(forPath path: String) -> [Tag] {
         let applied = Set(tags(forPath: path).map(\.name))
         return tags.filter { !applied.contains($0.name) }
+    }
+
+    // MARK: Multi-file tagging
+
+    /// Tag names carried by EVERY file in the current selection (fully applied).
+    func commonTagNamesInSelection() -> Set<String> {
+        let urls = selectedURLs
+        guard let first = urls.first, let library else { return [] }
+        var common = Set(library.meta(for: first.path)?.tags.map(\.name) ?? [])
+        for url in urls.dropFirst() {
+            common.formIntersection(Set(library.meta(for: url.path)?.tags.map(\.name) ?? []))
+            if common.isEmpty { break }
+        }
+        return common
+    }
+
+    /// Tag names carried by AT LEAST ONE file in the selection (mixed state).
+    func anyTagNamesInSelection() -> Set<String> {
+        guard let library else { return [] }
+        var any = Set<String>()
+        for url in selectedURLs { any.formUnion(library.meta(for: url.path)?.tags.map(\.name) ?? []) }
+        return any
+    }
+
+    func addTagToSelection(_ name: String) {
+        for url in selectedURLs { addTag(name, toPath: url.path) }
+    }
+
+    func removeTagFromSelection(_ name: String) {
+        for url in selectedURLs { removeTag(name, fromPath: url.path) }
+    }
+
+    // MARK: Notes (FileMeta.info)
+
+    func info(forPath path: String) -> String { library?.meta(for: path)?.info ?? "" }
+
+    func setInfo(_ text: String, forPath path: String) {
+        guard let library else { return }
+        let meta = library.meta(for: path)
+        library.setMeta(path: path,
+                        info: text,
+                        tagNames: meta?.tags.map(\.name) ?? [],
+                        displayName: meta?.displayName ?? "")
+        refreshLibrary()
     }
 
     // MARK: - Row ids & selection order
