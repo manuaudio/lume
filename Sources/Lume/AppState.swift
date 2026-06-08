@@ -1014,6 +1014,8 @@ final class AppState {
         tickedPaths = []
         scanFocusURL = nil
         isScanning = false
+        pendingOverwrite = nil   // drop any staged (destructive) overwrite tied to this scan
+        syncStatus = [:]
     }
 
     func isTicked(_ url: URL) -> Bool { tickedPaths.contains(url.path) }
