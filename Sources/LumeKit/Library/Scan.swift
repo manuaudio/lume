@@ -11,6 +11,8 @@ import SwiftData
     public var roots: [String]
     public var sortIndex: Int = 0
     public var dateAdded: Date = Date.now
+    /// POSIX path of the result chosen as the canonical file to propagate from. nil = none.
+    public var canonicalPath: String?
 
     public init(
         id: UUID = UUID(),
@@ -18,7 +20,8 @@ import SwiftData
         patterns: [String],
         roots: [String],
         sortIndex: Int = 0,
-        dateAdded: Date = .now
+        dateAdded: Date = .now,
+        canonicalPath: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -26,5 +29,6 @@ import SwiftData
         self.roots = roots
         self.sortIndex = sortIndex
         self.dateAdded = dateAdded
+        self.canonicalPath = canonicalPath
     }
 }

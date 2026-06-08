@@ -45,3 +45,16 @@ private func makeContainer() throws -> ModelContainer {
     store.removeScan(b)
     #expect(store.scans().map(\.name) == ["A2"])
 }
+
+@MainActor @Test func scanCanonicalPersists() throws {
+    let container = try makeContainer()
+    defer { withExtendedLifetime(container) {} }
+    let store = LibraryStore(context: container.mainContext)
+
+    let s = store.addScan(name: "C", patterns: ["CLAUDE.md"], roots: ["/x"])
+    #expect(s.canonicalPath == nil)
+    store.setCanonical("/x/CLAUDE.md", for: s)
+    #expect(store.scans().first?.canonicalPath == "/x/CLAUDE.md")
+    store.setCanonical(nil, for: s)
+    #expect(store.scans().first?.canonicalPath == nil)
+}

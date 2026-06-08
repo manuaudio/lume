@@ -347,6 +347,11 @@ public final class LibraryStore {
         try? context.save()
     }
 
+    public func setCanonical(_ path: String?, for scan: Scan) {
+        scan.canonicalPath = path
+        try? context.save()
+    }
+
     // MARK: - Bundles
 
     @discardableResult
