@@ -7,4 +7,10 @@ public enum PathExport {
     public static func clipboardString(for urls: [URL]) -> String {
         urls.map(\.path).joined(separator: "\n")
     }
+
+    /// Paths wrapped as a ready-to-send chatbot instruction.
+    public static func promptString(for urls: [URL]) -> String {
+        guard !urls.isEmpty else { return "" }
+        return "Improve these files:\n" + clipboardString(for: urls)
+    }
 }
