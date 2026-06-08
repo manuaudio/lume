@@ -23,6 +23,20 @@ struct ScanTriageView: View {
         .onAppear { listFocused = true }
         .task(id: app.scanFocusURL) { await loadPreview(app.scanFocusURL) }
         .task(id: app.scanResults) { await loadSizes(app.scanResults) }
+        .task(id: "\(app.canonicalURL?.path ?? "none")|\(app.scanResults.map(\.path).joined(separator: "|"))") {
+            await app.recomputeSyncStatus()
+        }
+        .confirmationDialog(
+            overwritePrompt,
+            isPresented: Binding(
+                get: { app.pendingOverwrite != nil },
+                set: { if !$0 { app.cancelOverwrite() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Overwrite", role: .destructive) { app.confirmOverwrite() }
+            Button("Cancel", role: .cancel) { app.cancelOverwrite() }
+        }
     }
 
     private var header: some View {
@@ -36,6 +50,11 @@ struct ScanTriageView: View {
             }
             .help(sortBySize ? "Sorting by token size" : "Sort by token size")
             .tint(sortBySize ? .accentColor : nil)
+            if app.canonicalURL != nil && !app.differingURLs.isEmpty {
+                Button { app.requestOverwriteAllDiffering() } label: {
+                    Label("Overwrite all differing (\(app.differingURLs.count))", systemImage: "arrow.down.doc.fill")
+                }
+            }
             Button { app.rescanActive() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
             Button { app.closeScan() } label: { Label("Close", systemImage: "xmark") }
         }
@@ -54,16 +73,33 @@ struct ScanTriageView: View {
                         .foregroundStyle(app.isTicked(url) ? Color.accentColor : .secondary)
                         .onTapGesture { app.toggleTick(url) }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(url.lastPathComponent).font(.body)
+                        HStack(spacing: 4) {
+                            if app.canonicalURL?.path == url.path {
+                                Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint).font(.caption)
+                            }
+                            Text(url.lastPathComponent).font(.body)
+                                .fontWeight(app.canonicalURL?.path == url.path ? .semibold : .regular)
+                        }
                         Text(parentLabel(url)).font(.caption).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
-                    Text(TokenEstimator.format(sizes[url.path]))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    if app.canonicalURL != nil {
+                        syncBadge(for: url)
+                    } else {
+                        Text(TokenEstimator.format(sizes[url.path]))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .tag(url)
+                .contextMenu {
+                    if app.canonicalURL?.path == url.path {
+                        Button("Clear Canonical") { app.setCanonical(nil) }
+                    } else {
+                        Button("Set as Canonical") { app.setCanonical(url) }
+                    }
+                }
             }
         }
         .focused($listFocused)
@@ -78,7 +114,9 @@ struct ScanTriageView: View {
 
     @ViewBuilder
     private var previewPane: some View {
-        if app.scanFocusURL != nil {
+        if let focus = app.scanFocusURL, let canonical = app.canonicalURL, canonical.path != focus.path {
+            DiffView(canonical: canonical, target: focus)
+        } else if app.scanFocusURL != nil {
             ScrollView {
                 Text(preview)
                     .font(.system(.body, design: .monospaced))
@@ -117,6 +155,26 @@ struct ScanTriageView: View {
 
     private func parentLabel(_ url: URL) -> String {
         url.deletingLastPathComponent().lastPathComponent
+    }
+
+    private var overwritePrompt: String {
+        let n = app.pendingOverwrite?.targets.count ?? 0
+        return "Overwrite \(n) file\(n == 1 ? "" : "s") with the canonical file? This rewrites \(n == 1 ? "it" : "them") on disk (⌘Z to undo)."
+    }
+
+    @ViewBuilder
+    private func syncBadge(for url: URL) -> some View {
+        switch app.syncStatus[url.path] {
+        case .canonical:
+            Text("canonical").font(.caption2).foregroundStyle(.tint)
+        case .same:
+            Label("same", systemImage: "checkmark").labelStyle(.iconOnly)
+                .font(.caption).foregroundStyle(.green).help("Matches canonical")
+        case .differs:
+            Text("Δ").font(.caption).foregroundStyle(.orange).help("Differs from canonical")
+        case .unreadable, .none:
+            Text("·").font(.caption).foregroundStyle(.tertiary)
+        }
     }
 
     /// Scan results in display order: by token size (desc) when the toggle is on.
