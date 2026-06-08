@@ -346,4 +346,35 @@ public final class LibraryStore {
         context.delete(scan)
         try? context.save()
     }
+
+    // MARK: - Bundles
+
+    @discardableResult
+    public func addBundle(name: String, paths: [String]) -> ContextBundle {
+        let bundle = ContextBundle(name: name, paths: paths, sortIndex: bundles().count)
+        context.insert(bundle)
+        try? context.save()
+        return bundle
+    }
+
+    public func bundles() -> [ContextBundle] {
+        (try? context.fetch(
+            FetchDescriptor<ContextBundle>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
+        )) ?? []
+    }
+
+    public func renameBundle(_ bundle: ContextBundle, to name: String) {
+        bundle.name = name
+        try? context.save()
+    }
+
+    public func setBundlePaths(_ paths: [String], for bundle: ContextBundle) {
+        bundle.paths = paths
+        try? context.save()
+    }
+
+    public func removeBundle(_ bundle: ContextBundle) {
+        context.delete(bundle)
+        try? context.save()
+    }
 }
