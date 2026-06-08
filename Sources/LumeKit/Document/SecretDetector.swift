@@ -9,10 +9,11 @@ public enum SecretDetector {
     }
 
     public static func isSensitive(_ filename: String) -> Bool {
-        if filename == ".env" || filename.hasPrefix(".env.") { return true }
         let lower = filename.lowercased()
+        if lower == ".env" || lower.hasPrefix(".env.") { return true }
         if lower.hasSuffix(".pem") { return true }
-        if lower == "id_rsa" || lower.hasPrefix("id_rsa") { return true }
+        if lower.hasPrefix("id_rsa") || lower.hasPrefix("id_ecdsa")
+            || lower.hasPrefix("id_ed25519") || lower.hasPrefix("id_dsa") { return true }
         if lower.contains("secret") || lower.contains("credential") { return true }
         return false
     }

@@ -1,8 +1,9 @@
 import Foundation
 
 /// The result of bundling files' contents for an LLM paste.
-public struct AssembledContext: Equatable {
+public struct AssembledContext: Equatable, Sendable {
     public let text: String
+    /// Estimated tokens for the FULL assembled text, including wrapper tags/fences (ceil of chars÷4).
     public let tokenEstimate: Int
     public let fileCount: Int
     public let unreadable: [URL]
@@ -16,6 +17,12 @@ public enum ContextAssembler {
         var pieces: [(url: URL, body: String)] = []
         var unreadable: [URL] = []
         for url in urls {
+            // Skip absurdly large files (valid UTF-8 logs/DBs) to avoid a memory spike.
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
+            if let size, size > 10 * 1024 * 1024 {
+                unreadable.append(url)
+                continue
+            }
             if let body = try? String(contentsOf: url, encoding: .utf8) {
                 pieces.append((url, body))
             } else {
@@ -30,7 +37,7 @@ public enum ContextAssembler {
         switch format {
         case .xml:
             let docs = pieces.map { p in
-                "<document path=\"\(xmlAttrEscape(displayPath(p.url)))\">\n\(p.body)\n</document>"
+                "<document path=\"\(xmlAttrEscape(displayPath(p.url)))\">\n\(xmlBodyEscape(p.body))\n</document>"
             }.joined(separator: "\n")
             text = "<documents>\n\(docs)\n</documents>"
         case .markdown:
@@ -90,5 +97,11 @@ public enum ContextAssembler {
         s.replacingOccurrences(of: "&", with: "&amp;")
          .replacingOccurrences(of: "\"", with: "&quot;")
          .replacingOccurrences(of: "<", with: "&lt;")
+    }
+
+    static func xmlBodyEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
     }
 }

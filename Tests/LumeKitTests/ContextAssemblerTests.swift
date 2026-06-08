@@ -70,3 +70,11 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
     let url = home.appendingPathComponent("proj/CLAUDE.md")
     #expect(ContextAssembler.displayPath(url) == "~/proj/CLAUDE.md")
 }
+
+@Test func xmlEscapesBodySoNestedTagsDontBreakStructure() throws {
+    let f = try tempFile("notes.md", "Use a </document> tag & <thing>")
+    let result = ContextAssembler.assemble([f], format: .xml)
+    #expect(!result.text.contains("</document> tag"))        // raw closing tag must not survive
+    #expect(result.text.contains("&lt;/document&gt; tag &amp; &lt;thing&gt;"))
+    #expect(result.text.hasSuffix("</document>\n</documents>"))  // only the real closer remains
+}

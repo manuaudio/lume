@@ -29,3 +29,10 @@ import Foundation
     ]
     #expect(SecretDetector.sensitiveFiles(in: urls).map(\.lastPathComponent) == [".env", "key.pem"])
 }
+
+@Test func flagsMoreSSHKeyTypesAndIsCaseInsensitive() {
+    #expect(SecretDetector.isSensitive("id_ed25519"))
+    #expect(SecretDetector.isSensitive("id_ecdsa"))
+    #expect(SecretDetector.isSensitive(".ENV"))
+    #expect(SecretDetector.isSensitive("Server.PEM"))
+}
