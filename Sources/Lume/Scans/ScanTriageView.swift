@@ -89,6 +89,10 @@ struct ScanTriageView: View {
                       systemImage: "doc.on.clipboard")
             }
             .disabled(app.tickedURLs.isEmpty)
+            Button { app.copyTickedAsContext() } label: {
+                Label("Copy as Context", systemImage: "doc.text")
+            }
+            .disabled(app.tickedURLs.isEmpty)
             Button { app.copyTickedAsPrompt() } label: {
                 Label("Copy as Prompt", systemImage: "text.bubble")
             }
