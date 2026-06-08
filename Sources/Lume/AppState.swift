@@ -177,6 +177,11 @@ final class AppState {
     /// Kinds Lume edits as plain text in the editor (others get a viewer).
     static let textEditableKinds: Set<FileKind> = [.markdown, .env, .code]
 
+    // MARK: - Activity feed
+    private(set) var activity = ActivityLog()
+    var recentChanges: [ActivityEntry] { activity.entries }
+    func clearActivityLog() { activity.clear() }
+
     // MARK: - Library wiring
 
     /// Connect the SwiftData-backed library (called once the container is ready).
@@ -257,6 +262,12 @@ final class AppState {
         watcher = DirectoryWatcher(root: root) { [weak self] changed in
             guard let self else { return }
             for path in changed { self.cache.invalidate(path: path) }
+            let recordable = Array(changed.filter { !ActivityLog.isIgnored($0) && self.isRegularFile($0) })
+            if !recordable.isEmpty {
+                var log = self.activity
+                log.record(recordable, at: Date())
+                self.activity = log
+            }
             self.refreshLibrary()
         }
     }
@@ -799,6 +810,12 @@ final class AppState {
     // MARK: - File operations (with Undo)
 
     private let fm = FileManager.default
+
+    /// True if `path` is an existing regular file (not a directory).
+    private func isRegularFile(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return fm.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+    }
 
     /// Copy the selected files' POSIX paths to the clipboard (⌥⌘C).
     func copySelectedPaths() {
