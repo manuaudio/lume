@@ -27,8 +27,10 @@ public enum ScanEngine {
         patterns: [String],
         fileManager: FileManager,
         into matches: inout [URL],
-        seen: inout Set<String>
+        seen: inout Set<String>,
+        depth: Int = 0
     ) {
+        guard depth < 64 else { return }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
@@ -42,9 +44,9 @@ public enum ScanEngine {
 
             if values?.isDirectory == true {
                 if ignoredDirectories.contains(url.lastPathComponent) { continue }
-                sweep(url, patterns: patterns, fileManager: fileManager, into: &matches, seen: &seen)
+                sweep(url, patterns: patterns, fileManager: fileManager, into: &matches, seen: &seen, depth: depth + 1)
             } else if PatternMatcher.matchesAny(filename: url.lastPathComponent, patterns: patterns) {
-                if seen.insert(url.path).inserted { matches.append(url) }
+                if seen.insert(url.standardizedFileURL.path).inserted { matches.append(url) }
             }
         }
     }

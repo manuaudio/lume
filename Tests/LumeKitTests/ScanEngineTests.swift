@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import LumeKit
 
-@MainActor
 private func makeTempTree() throws -> URL {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("scan-test-\(UUID().uuidString)")
@@ -22,7 +21,7 @@ private func makeTempTree() throws -> URL {
     return root
 }
 
-@MainActor @Test func sweepFindsMatchesAcrossRootsSkippingIgnoredDirs() throws {
+@Test func sweepFindsMatchesAcrossRootsSkippingIgnoredDirs() throws {
     let root = try makeTempTree()
     defer { try? FileManager.default.removeItem(at: root) }
 
@@ -36,4 +35,10 @@ private func makeTempTree() throws -> URL {
     #expect(names.contains(".env"))
     #expect(!results.contains { $0.path.contains("node_modules") })
     #expect(!results.contains { $0.path.contains(".git/") })
+}
+
+@Test func emptyPatternsMatchNothing() throws {
+    let root = try makeTempTree()
+    defer { try? FileManager.default.removeItem(at: root) }
+    #expect(ScanEngine.run(patterns: [], roots: [root]).isEmpty)
 }
