@@ -7,8 +7,9 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if app.rootURL != nil {
+            if app.rootURL != nil || !app.scans.isEmpty {
                 List {
+                    ScansRegion()
                     GroupsRegion()
                     FavoritesRegion()
                     OpenFolderRegion()
@@ -31,6 +32,11 @@ struct SidebarView: View {
                     Label("Open Folder", systemImage: "folder.badge.plus")
                 }
             }
+            ToolbarItem {
+                Button { app.beginNewScan() } label: {
+                    Label("New Scan", systemImage: "doc.text.magnifyingglass")
+                }
+            }
         }
         .alert("Rename", isPresented: bindableApp.presentingRename) {
             TextField("Name", text: bindableApp.renameText)
@@ -39,6 +45,7 @@ struct SidebarView: View {
         }
         .sheet(isPresented: bindableApp.presentingMultiTag) { MultiTagSheet() }
         .sheet(isPresented: bindableApp.presentingTagManager) { TagManagerSheet() }
+        .sheet(isPresented: bindableApp.presentingScanEditor) { NewScanSheet() }
     }
 
     private var bindableApp: Bindable<AppState> { Bindable(app) }
@@ -51,6 +58,7 @@ struct SidebarView: View {
         } actions: {
             Button("Open Folder…") { openFolder() }
                 .buttonStyle(.borderedProminent)
+            Button("New Scan…") { app.beginNewScan() }
         }
     }
 
@@ -100,6 +108,50 @@ struct SidebarView: View {
             app.typeaheadAppend(ch); return .handled
         }
         return .ignored
+    }
+}
+
+// MARK: - SCANS
+
+private struct ScansRegion: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        Section {
+            if app.scans.isEmpty {
+                Text("Create a scan to gather files (CLAUDE.md, .env…) across folders")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(app.scans, id: \.id) { scan in
+                    Button {
+                        app.runScan(scan)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                            Text(scan.name).lineLimit(1)
+                            Spacer()
+                            if app.activeScan?.id == scan.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Edit…") { app.beginEditScan(scan) }
+                        Button("Delete", role: .destructive) { app.deleteScan(scan) }
+                    }
+                }
+            }
+        } header: {
+            HStack(spacing: 10) {
+                Text("Scans")
+                Spacer()
+                Button { app.beginNewScan() } label: { Image(systemName: "plus.circle") }
+                    .buttonStyle(.borderless)
+            }
+        }
     }
 }
 
