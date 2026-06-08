@@ -91,6 +91,7 @@ final class AppState {
     private(set) var tickedPaths: Set<String> = []
     var scanFocusURL: URL?
     private(set) var isScanning = false
+    private var scanGeneration = 0
 
     // New/edit scan sheet
     var presentingScanEditor = false
@@ -898,8 +899,7 @@ final class AppState {
         let name = scanDraftName.trimmingCharacters(in: .whitespaces).isEmpty
             ? "Untitled Scan" : scanDraftName
         guard let library, !patterns.isEmpty, !roots.isEmpty else {
-            presentingScanEditor = false
-            return
+            return   // invalid input: keep the editor open so the user can correct it
         }
         if let editingScan {
             library.updateScan(editingScan, name: name, patterns: patterns, roots: roots)
@@ -917,6 +917,8 @@ final class AppState {
     }
 
     func runScan(_ scan: Scan) {
+        scanGeneration += 1
+        let generation = scanGeneration
         activeScan = scan
         selectedURL = nil          // hand the detail pane to the triage view
         tickedPaths = []
@@ -928,7 +930,7 @@ final class AppState {
         let roots = scan.roots.map { URL(fileURLWithPath: $0) }
         Task {
             let results = await Task.detached { ScanEngine.run(patterns: patterns, roots: roots) }.value
-            guard self.activeScan?.id == scan.id else { return }  // ignore stale
+            guard self.scanGeneration == generation else { return }  // a newer scan/close superseded us
             self.scanResults = results
             self.scanFocusURL = results.first
             self.isScanning = false
@@ -940,6 +942,7 @@ final class AppState {
     }
 
     func closeScan() {
+        scanGeneration += 1  // discard any in-flight sweep
         activeScan = nil
         scanResults = []
         tickedPaths = []
@@ -960,18 +963,18 @@ final class AppState {
 
     var tickedURLs: [URL] { scanResults.filter { tickedPaths.contains($0.path) } }
 
-    func copyTickedPaths() {
-        let text = PathExport.clipboardString(for: tickedURLs)
+    private func writeToPasteboard(_ text: String) {
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    func copyTickedPaths() {
+        writeToPasteboard(PathExport.clipboardString(for: tickedURLs))
+    }
+
     func copyTickedAsPrompt() {
-        let text = PathExport.promptString(for: tickedURLs)
-        guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        writeToPasteboard(PathExport.promptString(for: tickedURLs))
     }
 
     func moveScanFocus(by delta: Int) {
