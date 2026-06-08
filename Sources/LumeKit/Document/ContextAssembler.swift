@@ -48,7 +48,7 @@ public enum ContextAssembler {
             }.joined(separator: "\n\n")
         }
 
-        let estimate = Int(ceil(Double(text.count) / 4.0))
+        let estimate = TokenEstimator.estimate(text)
         return AssembledContext(text: text, tokenEstimate: estimate,
                                 fileCount: pieces.count, unreadable: unreadable)
     }
