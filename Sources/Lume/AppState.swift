@@ -1079,14 +1079,21 @@ final class AppState {
             return
         }
         var restores: [(url: URL, text: String)] = []
+        var skipped: [String] = []
         for target in targets where target.path != canonical.path {
-            let old = (try? String(contentsOf: target, encoding: .utf8)) ?? ""
+            // Only overwrite files we can read back as UTF-8 text. A binary or
+            // non-UTF-8 target has no faithful undo (we'd capture "" and restore an
+            // empty file), so skip it entirely rather than risk destroying data.
+            guard let old = try? String(contentsOf: target, encoding: .utf8) else {
+                skipped.append(target.lastPathComponent)
+                continue
+            }
             do {
                 try TextDocument(url: target, text: canonText).save()
                 restores.append((target, old))
                 cache.invalidate(path: target.deletingLastPathComponent().path)
             } catch {
-                errorMessage = "Couldn't overwrite \(target.lastPathComponent): \(error.localizedDescription)"
+                skipped.append(target.lastPathComponent)
             }
         }
         if !restores.isEmpty {
@@ -1097,6 +1104,10 @@ final class AppState {
                 }
                 Task { await self?.recomputeSyncStatus() }
             }
+        }
+        if !skipped.isEmpty {
+            let n = restores.count
+            errorMessage = "Overwrote \(n) file\(n == 1 ? "" : "s"); skipped \(skipped.count) not readable as text: \(skipped.joined(separator: ", "))"
         }
         Task { await recomputeSyncStatus() }
     }
