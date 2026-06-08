@@ -13,6 +13,17 @@ struct ContentView: View {
             DetailView()
         }
         .modifier(ModifierPeekMonitor())
+        .confirmationDialog(
+            "This selection includes secrets (e.g. .env). Copy their contents anyway?",
+            isPresented: Binding(
+                get: { app.pendingContextCopy != nil },
+                set: { if !$0 { app.cancelPendingContextCopy() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Copy Anyway", role: .destructive) { app.confirmPendingContextCopy() }
+            Button("Cancel", role: .cancel) { app.cancelPendingContextCopy() }
+        }
     }
 }
 

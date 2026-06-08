@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LumeKit
 
 /// All of Lume's menu-bar commands and keyboard shortcuts in one place.
 struct LumeCommands: Commands {
@@ -66,6 +67,32 @@ struct LumeCommands: Commands {
             Button("New Group…") { app.beginNewGroup() }
                 .keyboardShortcut("g", modifiers: [.control, .command])
                 .disabled(app.library == nil)
+        }
+
+        // Context
+        CommandMenu("Context") {
+            Button("Copy as Context") { app.copyAsContext(urls: app.selectedURLs) }
+                .keyboardShortcut("c", modifiers: [.control, .command])
+                .disabled(app.selectedURLs.isEmpty)
+            Button("New Bundle from Selection…") { app.createBundleFromSelection() }
+                .disabled(app.selectedURLs.isEmpty)
+            Menu("Add Selection to Bundle") {
+                ForEach(app.bundles, id: \.id) { bundle in
+                    Button(bundle.name) {
+                        app.addPaths(app.selectedURLs.map(\.path), to: bundle)
+                    }
+                }
+            }
+            .disabled(app.bundles.isEmpty || app.selectedURLs.isEmpty)
+            Divider()
+            Picker("Format", selection: Binding(
+                get: { app.contextFormat },
+                set: { app.contextFormat = $0 }
+            )) {
+                ForEach(ContextFormat.allCases, id: \.self) { fmt in
+                    Text(fmt.label).tag(fmt)
+                }
+            }
         }
 
         // View
