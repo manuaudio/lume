@@ -54,6 +54,8 @@ private struct DetailView: View {
     var body: some View {
         if app.activeScan != nil {
             ScanTriageView()
+        } else if app.activeBundle != nil {
+            BundleView()
         } else if let message = app.errorMessage {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if let url = app.selectedURL {

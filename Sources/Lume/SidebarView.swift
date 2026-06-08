@@ -10,6 +10,7 @@ struct SidebarView: View {
             if app.rootURL != nil || !app.scans.isEmpty {
                 List {
                     ScansRegion()
+                    BundlesRegion()
                     GroupsRegion()
                     FavoritesRegion()
                     OpenFolderRegion()
@@ -151,6 +152,47 @@ private struct ScansRegion: View {
                 Button { app.beginNewScan() } label: { Image(systemName: "plus.circle") }
                     .buttonStyle(.borderless)
             }
+        }
+    }
+}
+
+// MARK: - Bundles
+
+private struct BundlesRegion: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        Section {
+            if app.bundles.isEmpty {
+                Text("Save a set of files to re-copy as LLM context")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(app.bundles, id: \.id) { bundle in
+                    Button {
+                        app.openBundle(bundle)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "shippingbox")
+                            Text(bundle.name).lineLimit(1)
+                            Spacer()
+                            Text("\(bundle.paths.count)")
+                                .font(.caption).foregroundStyle(.tertiary)
+                            if app.activeBundle?.id == bundle.id {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Open") { app.openBundle(bundle) }
+                        Button("Delete", role: .destructive) { app.deleteBundle(bundle) }
+                    }
+                }
+            }
+        } header: {
+            Text("Bundles")
         }
     }
 }
