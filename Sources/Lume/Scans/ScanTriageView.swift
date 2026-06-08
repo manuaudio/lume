@@ -8,6 +8,8 @@ struct ScanTriageView: View {
     @Environment(AppState.self) private var app
     @FocusState private var listFocused: Bool
     @State private var preview = ""
+    @State private var sizes: [String: Int] = [:]
+    @State private var sortBySize = false
 
     var body: some View {
         HSplitView {
@@ -20,6 +22,7 @@ struct ScanTriageView: View {
         .safeAreaInset(edge: .bottom) { actionBar }
         .onAppear { listFocused = true }
         .task(id: app.scanFocusURL) { await loadPreview(app.scanFocusURL) }
+        .task(id: app.scanResults) { await loadSizes(app.scanResults) }
     }
 
     private var header: some View {
@@ -28,6 +31,11 @@ struct ScanTriageView: View {
             Text(app.activeScan?.name ?? "Scan").font(.headline)
             if app.isScanning { ProgressView().controlSize(.small) }
             Spacer()
+            Button { sortBySize.toggle() } label: {
+                Label("Sort by size", systemImage: "arrow.up.arrow.down")
+            }
+            .help(sortBySize ? "Sorting by token size" : "Sort by token size")
+            .tint(sortBySize ? .accentColor : nil)
             Button { app.rescanActive() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
             Button { app.closeScan() } label: { Label("Close", systemImage: "xmark") }
         }
@@ -40,7 +48,7 @@ struct ScanTriageView: View {
             get: { app.scanFocusURL },
             set: { app.scanFocusURL = $0 }
         )) {
-            ForEach(app.scanResults, id: \.self) { url in
+            ForEach(displayedResults, id: \.self) { url in
                 HStack(spacing: 8) {
                     Image(systemName: app.isTicked(url) ? "checkmark.square.fill" : "square")
                         .foregroundStyle(app.isTicked(url) ? Color.accentColor : .secondary)
@@ -50,6 +58,10 @@ struct ScanTriageView: View {
                         Text(parentLabel(url)).font(.caption).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
                     }
+                    Spacer()
+                    Text(TokenEstimator.format(sizes[url.path]))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
                 .tag(url)
             }
@@ -105,6 +117,24 @@ struct ScanTriageView: View {
 
     private func parentLabel(_ url: URL) -> String {
         url.deletingLastPathComponent().lastPathComponent
+    }
+
+    /// Scan results in display order: by token size (desc) when the toggle is on.
+    private var displayedResults: [URL] {
+        guard sortBySize else { return app.scanResults }
+        return app.scanResults.sorted { (sizes[$0.path] ?? 0) > (sizes[$1.path] ?? 0) }
+    }
+
+    private func loadSizes(_ urls: [URL]) async {
+        let paths = urls.map(\.path)
+        let computed = await Task.detached(priority: .utility) { () -> [String: Int] in
+            var out: [String: Int] = [:]
+            for p in paths {
+                if let t = TokenEstimator.estimateFile(URL(fileURLWithPath: p)) { out[p] = t }
+            }
+            return out
+        }.value
+        sizes = computed
     }
 
     private func loadPreview(_ url: URL?) async {
