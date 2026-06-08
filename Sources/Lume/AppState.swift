@@ -262,7 +262,9 @@ final class AppState {
         watcher = DirectoryWatcher(root: root) { [weak self] changed in
             guard let self else { return }
             for path in changed { self.cache.invalidate(path: path) }
-            let recordable = Array(changed.filter { !ActivityLog.isIgnored($0) && self.isRegularFile($0) })
+            // Sort for deterministic within-burst order (Set iteration is unordered;
+            // entries share a timestamp so the order is cosmetic but should be stable).
+            let recordable = changed.filter { !ActivityLog.isIgnored($0) && self.isRegularFile($0) }.sorted()
             if !recordable.isEmpty {
                 var log = self.activity
                 log.record(recordable, at: Date())
