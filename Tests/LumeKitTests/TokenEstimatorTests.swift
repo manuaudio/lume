@@ -28,4 +28,6 @@ private func tokTempFile(_ name: String, bytes: Int) throws -> URL {
     #expect(TokenEstimator.format(512) == "~512")
     #expect(TokenEstimator.format(1200) == "~1.2k")
     #expect(TokenEstimator.format(45000) == "~45k")
+    #expect(TokenEstimator.format(9940) == "~9.9k")   // stays one-decimal below 9.95k
+    #expect(TokenEstimator.format(9999) == "~10k")     // never renders "~10.0k"
 }

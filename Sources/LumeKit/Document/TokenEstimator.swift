@@ -19,6 +19,7 @@ public enum TokenEstimator {
         guard let t = tokens else { return "—" }
         if t < 1000 { return "~\(t)" }
         let k = Double(t) / 1000.0
-        return k < 10 ? "~\(String(format: "%.1f", k))k" : "~\(Int(k))k"
+        // Use the integer form once one-decimal rounding would read as "10.0k".
+        return k < 9.95 ? "~\(String(format: "%.1f", k))k" : "~\(Int(k.rounded()))k"
     }
 }
