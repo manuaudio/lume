@@ -977,13 +977,6 @@ final class AppState {
         writeToPasteboard(PathExport.promptString(for: tickedURLs))
     }
 
-    func moveScanFocus(by delta: Int) {
-        guard !scanResults.isEmpty else { return }
-        let current = scanFocusURL.flatMap { url in scanResults.firstIndex(where: { $0.path == url.path }) } ?? -1
-        let next = max(0, min(scanResults.count - 1, current + delta))
-        scanFocusURL = scanResults[next]
-    }
-
     // MARK: - Display name
 
     /// The label to show for a path: user override → auto parent-folder name for

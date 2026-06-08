@@ -7,6 +7,7 @@ import LumeKit
 struct ScanTriageView: View {
     @Environment(AppState.self) private var app
     @FocusState private var listFocused: Bool
+    @State private var preview = ""
 
     var body: some View {
         HSplitView {
@@ -18,6 +19,7 @@ struct ScanTriageView: View {
         .safeAreaInset(edge: .top) { header }
         .safeAreaInset(edge: .bottom) { actionBar }
         .onAppear { listFocused = true }
+        .task(id: app.scanFocusURL) { await loadPreview(app.scanFocusURL) }
     }
 
     private var header: some View {
@@ -54,8 +56,6 @@ struct ScanTriageView: View {
         }
         .focused($listFocused)
         .onKeyPress(.space) { app.toggleTickFocused(); return .handled }
-        .onKeyPress(.upArrow) { app.moveScanFocus(by: -1); return .handled }
-        .onKeyPress(.downArrow) { app.moveScanFocus(by: 1); return .handled }
         .overlay {
             if !app.isScanning && app.scanResults.isEmpty {
                 ContentUnavailableView("No Matches", systemImage: "magnifyingglass",
@@ -66,9 +66,9 @@ struct ScanTriageView: View {
 
     @ViewBuilder
     private var previewPane: some View {
-        if let url = app.scanFocusURL {
+        if app.scanFocusURL != nil {
             ScrollView {
-                Text(previewText(url))
+                Text(preview)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,7 +85,8 @@ struct ScanTriageView: View {
             Text("\(app.tickedURLs.count) ticked").foregroundStyle(.secondary)
             Spacer()
             Button { app.copyTickedPaths() } label: {
-                Label("Copy \(app.tickedURLs.count) Paths", systemImage: "doc.on.clipboard")
+                Label(app.tickedURLs.isEmpty ? "Copy Paths" : "Copy \(app.tickedURLs.count) Paths",
+                      systemImage: "doc.on.clipboard")
             }
             .disabled(app.tickedURLs.isEmpty)
             Button { app.copyTickedAsPrompt() } label: {
@@ -102,10 +103,16 @@ struct ScanTriageView: View {
         url.deletingLastPathComponent().lastPathComponent
     }
 
-    private func previewText(_ url: URL) -> String {
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text.isEmpty ? "(empty file)" : text
-        }
-        return "(binary or unreadable file — open in Finder to inspect)"
+    private func loadPreview(_ url: URL?) async {
+        guard let url else { preview = ""; return }
+        let text = await Task.detached(priority: .userInitiated) { () -> String in
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
+                return "(binary or unreadable file — open in Finder to inspect)"
+            }
+            if raw.isEmpty { return "(empty file)" }
+            let cap = 50_000
+            return raw.count > cap ? String(raw.prefix(cap)) + "\n\n… (truncated)" : raw
+        }.value
+        preview = text
     }
 }
