@@ -83,6 +83,21 @@ final class AppState {
     private(set) var favorites: [Favorite] = []
     private(set) var tags: [Tag] = []
     private(set) var hiddenPaths: Set<String> = []
+    private(set) var scans: [Scan] = []
+
+    // Active scan triage session
+    private(set) var activeScan: Scan?
+    private(set) var scanResults: [URL] = []
+    private(set) var tickedPaths: Set<String> = []
+    var scanFocusURL: URL?
+    private(set) var isScanning = false
+
+    // New/edit scan sheet
+    var presentingScanEditor = false
+    var scanDraftName = ""
+    var scanDraftPatterns = ""        // comma-separated in the UI
+    var scanDraftRoots: [URL] = []
+    var editingScan: Scan?            // nil = creating, non-nil = editing
 
     /// Tag names whose GROUP is expanded in the navigator.
     private(set) var expandedGroups: Set<String> = []
@@ -131,6 +146,7 @@ final class AppState {
         favorites = library.favorites()
         tags = library.allTags()
         hiddenPaths = library.hiddenPaths()
+        scans = library.scans()
         rebuildGroups()
     }
 
@@ -853,6 +869,116 @@ final class AppState {
             try? fm.trashItem(at: u, resultingItemURL: nil)
             cache.invalidate(path: u.deletingLastPathComponent().path)
         }
+    }
+
+    // MARK: - Scans
+
+    func beginNewScan() {
+        editingScan = nil
+        scanDraftName = ""
+        scanDraftPatterns = "CLAUDE.md, memory.md, aesthetics.md, .env"
+        scanDraftRoots = []
+        presentingScanEditor = true
+    }
+
+    func beginEditScan(_ scan: Scan) {
+        editingScan = scan
+        scanDraftName = scan.name
+        scanDraftPatterns = scan.patterns.joined(separator: ", ")
+        scanDraftRoots = scan.roots.map { URL(fileURLWithPath: $0) }
+        presentingScanEditor = true
+    }
+
+    func commitScanEditor() {
+        let patterns = scanDraftPatterns
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let roots = scanDraftRoots.map(\.path)
+        let name = scanDraftName.trimmingCharacters(in: .whitespaces).isEmpty
+            ? "Untitled Scan" : scanDraftName
+        guard let library, !patterns.isEmpty, !roots.isEmpty else {
+            presentingScanEditor = false
+            return
+        }
+        if let editingScan {
+            library.updateScan(editingScan, name: name, patterns: patterns, roots: roots)
+        } else {
+            library.addScan(name: name, patterns: patterns, roots: roots)
+        }
+        refreshLibrary()
+        presentingScanEditor = false
+    }
+
+    func deleteScan(_ scan: Scan) {
+        if activeScan?.id == scan.id { closeScan() }
+        library?.removeScan(scan)
+        refreshLibrary()
+    }
+
+    func runScan(_ scan: Scan) {
+        activeScan = scan
+        selectedURL = nil          // hand the detail pane to the triage view
+        tickedPaths = []
+        scanResults = []
+        scanFocusURL = nil
+        isScanning = true
+
+        let patterns = scan.patterns
+        let roots = scan.roots.map { URL(fileURLWithPath: $0) }
+        Task {
+            let results = await Task.detached { ScanEngine.run(patterns: patterns, roots: roots) }.value
+            guard self.activeScan?.id == scan.id else { return }  // ignore stale
+            self.scanResults = results
+            self.scanFocusURL = results.first
+            self.isScanning = false
+        }
+    }
+
+    func rescanActive() {
+        if let activeScan { runScan(activeScan) }
+    }
+
+    func closeScan() {
+        activeScan = nil
+        scanResults = []
+        tickedPaths = []
+        scanFocusURL = nil
+        isScanning = false
+    }
+
+    func isTicked(_ url: URL) -> Bool { tickedPaths.contains(url.path) }
+
+    func toggleTick(_ url: URL) {
+        if tickedPaths.contains(url.path) { tickedPaths.remove(url.path) }
+        else { tickedPaths.insert(url.path) }
+    }
+
+    func toggleTickFocused() {
+        if let scanFocusURL { toggleTick(scanFocusURL) }
+    }
+
+    var tickedURLs: [URL] { scanResults.filter { tickedPaths.contains($0.path) } }
+
+    func copyTickedPaths() {
+        let text = PathExport.clipboardString(for: tickedURLs)
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func copyTickedAsPrompt() {
+        let text = PathExport.promptString(for: tickedURLs)
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func moveScanFocus(by delta: Int) {
+        guard !scanResults.isEmpty else { return }
+        let current = scanFocusURL.flatMap { url in scanResults.firstIndex(where: { $0.path == url.path }) } ?? -1
+        let next = max(0, min(scanResults.count - 1, current + delta))
+        scanFocusURL = scanResults[next]
     }
 
     // MARK: - Display name
