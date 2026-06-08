@@ -9,7 +9,7 @@ struct LumeApp: App {
     private let container: ModelContainer
 
     init() {
-        let schema = Schema([Favorite.self, Bookmark.self, Tag.self, FileMeta.self, Scan.self])
+        let schema = Schema([Favorite.self, Bookmark.self, Tag.self, FileMeta.self, Scan.self, ContextBundle.self])
         do {
             container = try ModelContainer(
                 for: schema,
