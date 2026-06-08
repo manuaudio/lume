@@ -1002,7 +1002,8 @@ final class AppState {
     /// Copy the given files' CONTENTS as one LLM-pasteable blob. If any file
     /// looks like a secret, stage a confirmation instead of copying immediately.
     func copyAsContext(urls: [URL]) {
-        let unique = NSOrderedSet(array: urls).array as! [URL]
+        var seen = Set<URL>()
+        let unique = urls.filter { seen.insert($0).inserted }
         guard !unique.isEmpty else { return }
         if SecretDetector.sensitiveFiles(in: unique).isEmpty {
             performContextCopy(unique)
@@ -1039,7 +1040,8 @@ final class AppState {
 
     func addPaths(_ paths: [String], to bundle: ContextBundle) {
         guard let library else { return }
-        let merged = NSOrderedSet(array: bundle.paths + paths).array as! [String]
+        var seen = Set<String>()
+        let merged = (bundle.paths + paths).filter { seen.insert($0).inserted }
         library.setBundlePaths(merged, for: bundle)
         bundles = library.bundles()
     }

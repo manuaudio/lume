@@ -24,8 +24,16 @@ struct BundleView: View {
             fileList
             actionBar
         }
-        .onAppear { nameDraft = bundle?.name ?? "" }
-        .task(id: bundle?.paths) { recomputeEstimate() }
+        // Re-seed the name draft per bundle identity (not just once on appear),
+        // so switching bundles can't rename the previously-open one.
+        .task(id: bundle?.id) { nameDraft = bundle?.name ?? "" }
+        // Recompute when the path set OR the format changes; do the file I/O off-main.
+        .task(id: estimateKey) { await recomputeEstimate() }
+    }
+
+    /// Identity for the estimate task: bundle + format + path set.
+    private var estimateKey: String {
+        "\(bundle?.id.uuidString ?? "")|\(app.contextFormat.rawValue)|\((bundle?.paths ?? []).joined(separator: "|"))"
     }
 
     private var header: some View {
@@ -88,7 +96,11 @@ struct BundleView: View {
         .background(.bar)
     }
 
-    private func recomputeEstimate() {
-        tokenEstimate = ContextAssembler.assemble(existingURLs, format: app.contextFormat).tokenEstimate
+    private func recomputeEstimate() async {
+        let urls = existingURLs
+        let fmt = app.contextFormat
+        tokenEstimate = await Task.detached {
+            ContextAssembler.assemble(urls, format: fmt).tokenEstimate
+        }.value
     }
 }
