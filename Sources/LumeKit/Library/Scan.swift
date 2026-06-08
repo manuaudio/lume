@@ -9,8 +9,8 @@ import SwiftData
     public var patterns: [String]
     /// Root folder POSIX paths to recurse from.
     public var roots: [String]
-    public var sortIndex: Int
-    public var dateAdded: Date
+    public var sortIndex: Int = 0
+    public var dateAdded: Date = Date.now
 
     public init(
         id: UUID = UUID(),
