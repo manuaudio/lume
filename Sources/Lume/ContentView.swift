@@ -41,7 +41,9 @@ private struct DetailView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        if let message = app.errorMessage {
+        if app.activeScan != nil {
+            ScanTriageView()
+        } else if let message = app.errorMessage {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if let url = app.selectedURL {
             VStack(spacing: 0) {
