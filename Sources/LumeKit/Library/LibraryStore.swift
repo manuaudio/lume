@@ -318,4 +318,32 @@ public final class LibraryStore {
         d.fetchLimit = 1
         return try? context.fetch(d).first
     }
+
+    // MARK: - Scans
+
+    @discardableResult
+    public func addScan(name: String, patterns: [String], roots: [String]) -> Scan {
+        let scan = Scan(name: name, patterns: patterns, roots: roots, sortIndex: scans().count)
+        context.insert(scan)
+        try? context.save()
+        return scan
+    }
+
+    public func scans() -> [Scan] {
+        (try? context.fetch(
+            FetchDescriptor<Scan>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
+        )) ?? []
+    }
+
+    public func updateScan(_ scan: Scan, name: String, patterns: [String], roots: [String]) {
+        scan.name = name
+        scan.patterns = patterns
+        scan.roots = roots
+        try? context.save()
+    }
+
+    public func removeScan(_ scan: Scan) {
+        context.delete(scan)
+        try? context.save()
+    }
 }
