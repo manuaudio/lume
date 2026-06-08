@@ -8,6 +8,9 @@ struct BundleView: View {
     @Environment(AppState.self) private var app
     @State private var nameDraft = ""
     @State private var tokenEstimate = 0
+    @State private var sizes: [String: Int] = [:]
+
+    private let budgetWarnThreshold = 100_000
 
     private var bundle: ContextBundle? { app.activeBundle }
 
@@ -29,6 +32,7 @@ struct BundleView: View {
         .task(id: bundle?.id) { nameDraft = bundle?.name ?? "" }
         // Recompute when the path set OR the format changes; do the file I/O off-main.
         .task(id: estimateKey) { await recomputeEstimate() }
+        .task(id: bundle?.paths) { await loadSizes(bundle?.paths ?? []) }
     }
 
     /// Identity for the estimate task: bundle + format + path set.
@@ -66,6 +70,11 @@ struct BundleView: View {
                             .lineLimit(1).truncationMode(.middle)
                     }
                     Spacer()
+                    if exists {
+                        Text(TokenEstimator.format(sizes[path]))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                     Button {
                         if let b = bundle { app.removePath(path, from: b) }
                     } label: { Image(systemName: "minus.circle") }
@@ -84,7 +93,7 @@ struct BundleView: View {
     private var actionBar: some View {
         HStack {
             Text("~\(tokenEstimate) tokens · \(existingURLs.count) files")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tokenEstimate > budgetWarnThreshold ? Color.orange : Color.secondary)
             Spacer()
             Button { app.copyAsContext(urls: existingURLs) } label: {
                 Label("Copy as Context", systemImage: "doc.on.clipboard")
@@ -102,5 +111,16 @@ struct BundleView: View {
         tokenEstimate = await Task.detached {
             ContextAssembler.assemble(urls, format: fmt).tokenEstimate
         }.value
+    }
+
+    private func loadSizes(_ paths: [String]) async {
+        let computed = await Task.detached(priority: .utility) { () -> [String: Int] in
+            var out: [String: Int] = [:]
+            for p in paths {
+                if let t = TokenEstimator.estimateFile(URL(fileURLWithPath: p)) { out[p] = t }
+            }
+            return out
+        }.value
+        sizes = computed
     }
 }
