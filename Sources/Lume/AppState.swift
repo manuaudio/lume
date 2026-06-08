@@ -93,6 +93,33 @@ final class AppState {
     private(set) var isScanning = false
     private var scanGeneration = 0
 
+    // MARK: - Propagate (canonical sync) state
+
+    enum OverwriteRequest: Equatable {
+        case single(URL)
+        case allDiffering([URL])
+        var targets: [URL] {
+            switch self {
+            case .single(let u): return [u]
+            case .allDiffering(let us): return us
+            }
+        }
+    }
+
+    /// Staged overwrite awaiting confirmation; non-nil drives the confirm dialog.
+    var pendingOverwrite: OverwriteRequest?
+    /// Sync state of each active-scan result vs the canonical file (path → status).
+    private(set) var syncStatus: [String: SyncStatus] = [:]
+
+    /// The canonical file for the active scan, if one is set.
+    var canonicalURL: URL? {
+        guard let p = activeScan?.canonicalPath else { return nil }
+        return URL(fileURLWithPath: p)
+    }
+
+    /// Results that differ from the canonical file.
+    var differingURLs: [URL] { scanResults.filter { syncStatus[$0.path] == .differs } }
+
     // MARK: - Context bundles state
 
     static let contextFormatKey = "lume.contextFormat"
@@ -995,6 +1022,83 @@ final class AppState {
 
     func copyTickedAsPrompt() {
         writeToPasteboard(PathExport.promptString(for: tickedURLs))
+    }
+
+    // MARK: - Propagate (canonical sync) actions
+
+    func setCanonical(_ url: URL?) {
+        guard let library, let activeScan else { return }
+        library.setCanonical(url?.path, for: activeScan)
+        scans = library.scans()
+        Task { await recomputeSyncStatus() }
+    }
+
+    /// Recompute each result's sync status vs the canonical file, off-main.
+    func recomputeSyncStatus() async {
+        guard let canonicalURL else { syncStatus = [:]; return }
+        let canonicalPath = canonicalURL.path
+        let results = scanResults.map(\.path)
+        let computed = await Task.detached(priority: .utility) { () -> [String: SyncStatus] in
+            guard let canonText = try? String(contentsOf: URL(fileURLWithPath: canonicalPath), encoding: .utf8) else {
+                return [:]
+            }
+            var out: [String: SyncStatus] = [:]
+            for p in results {
+                if p == canonicalPath { out[p] = .canonical; continue }
+                if let t = try? String(contentsOf: URL(fileURLWithPath: p), encoding: .utf8) {
+                    out[p] = (t == canonText) ? .same : .differs
+                } else {
+                    out[p] = .unreadable
+                }
+            }
+            return out
+        }.value
+        syncStatus = computed
+    }
+
+    func requestOverwrite(_ target: URL) { pendingOverwrite = .single(target) }
+
+    func requestOverwriteAllDiffering() {
+        let targets = differingURLs
+        guard !targets.isEmpty else { return }
+        pendingOverwrite = .allDiffering(targets)
+    }
+
+    func cancelOverwrite() { pendingOverwrite = nil }
+
+    func confirmOverwrite() {
+        defer { pendingOverwrite = nil }
+        guard let req = pendingOverwrite, let canonicalURL else { return }
+        overwrite(req.targets, withCanonical: canonicalURL)
+    }
+
+    /// Overwrite each target with the canonical file's text; registers a single undo.
+    private func overwrite(_ targets: [URL], withCanonical canonical: URL) {
+        guard let canonText = try? String(contentsOf: canonical, encoding: .utf8) else {
+            errorMessage = "Couldn't read the canonical file."
+            return
+        }
+        var restores: [(url: URL, text: String)] = []
+        for target in targets where target.path != canonical.path {
+            let old = (try? String(contentsOf: target, encoding: .utf8)) ?? ""
+            do {
+                try TextDocument(url: target, text: canonText).save()
+                restores.append((target, old))
+                cache.invalidate(path: target.deletingLastPathComponent().path)
+            } catch {
+                errorMessage = "Couldn't overwrite \(target.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        if !restores.isEmpty {
+            registerUndo("Overwrite with Canonical") { [weak self] in
+                for (url, text) in restores {
+                    try? TextDocument(url: url, text: text).save()
+                    self?.cache.invalidate(path: url.deletingLastPathComponent().path)
+                }
+                Task { await self?.recomputeSyncStatus() }
+            }
+        }
+        Task { await recomputeSyncStatus() }
     }
 
     // MARK: - Copy as Context
