@@ -93,6 +93,24 @@ final class AppState {
     private(set) var isScanning = false
     private var scanGeneration = 0
 
+    // MARK: - Context bundles state
+
+    static let contextFormatKey = "lume.contextFormat"
+
+    /// Persisted XML/Markdown choice for "Copy as Context".
+    var contextFormat: ContextFormat =
+        ContextFormat(rawValue: UserDefaults.standard.string(forKey: AppState.contextFormatKey) ?? "") ?? .xml {
+        didSet { UserDefaults.standard.set(contextFormat.rawValue, forKey: AppState.contextFormatKey) }
+    }
+
+    /// Files staged for copy that include secrets, awaiting user confirmation.
+    /// Non-nil drives the secret-confirmation dialog.
+    var pendingContextCopy: [URL]?
+
+    private(set) var bundles: [ContextBundle] = []
+    /// When non-nil, the detail pane shows this bundle (see ContentView routing).
+    var activeBundle: ContextBundle?
+
     // New/edit scan sheet
     var presentingScanEditor = false
     var scanDraftName = ""
@@ -148,6 +166,7 @@ final class AppState {
         tags = library.allTags()
         hiddenPaths = library.hiddenPaths()
         scans = library.scans()
+        bundles = library.bundles()
         rebuildGroups()
     }
 
@@ -917,6 +936,7 @@ final class AppState {
     }
 
     func runScan(_ scan: Scan) {
+        if activeBundle != nil { closeBundle() }
         scanGeneration += 1
         let generation = scanGeneration
         activeScan = scan
@@ -977,6 +997,82 @@ final class AppState {
         writeToPasteboard(PathExport.promptString(for: tickedURLs))
     }
 
+    // MARK: - Copy as Context
+
+    /// Copy the given files' CONTENTS as one LLM-pasteable blob. If any file
+    /// looks like a secret, stage a confirmation instead of copying immediately.
+    func copyAsContext(urls: [URL]) {
+        let unique = NSOrderedSet(array: urls).array as! [URL]
+        guard !unique.isEmpty else { return }
+        if SecretDetector.sensitiveFiles(in: unique).isEmpty {
+            performContextCopy(unique)
+        } else {
+            pendingContextCopy = unique
+        }
+    }
+
+    /// Copy the current Scan triage ticked set as context.
+    func copyTickedAsContext() { copyAsContext(urls: tickedURLs) }
+
+    func confirmPendingContextCopy() {
+        if let urls = pendingContextCopy { performContextCopy(urls) }
+        pendingContextCopy = nil
+    }
+
+    func cancelPendingContextCopy() { pendingContextCopy = nil }
+
+    private func performContextCopy(_ urls: [URL]) {
+        let assembled = ContextAssembler.assemble(urls, format: contextFormat)
+        writeToPasteboard(assembled.text)
+    }
+
+    // MARK: - Bundles
+
+    /// Create a bundle from the current selection and open it.
+    func createBundleFromSelection() {
+        let paths = selectedURLs.map(\.path)
+        guard !paths.isEmpty, let library else { return }
+        let bundle = library.addBundle(name: "Bundle \(bundles.count + 1)", paths: paths)
+        bundles = library.bundles()
+        openBundle(bundle)
+    }
+
+    func addPaths(_ paths: [String], to bundle: ContextBundle) {
+        guard let library else { return }
+        let merged = NSOrderedSet(array: bundle.paths + paths).array as! [String]
+        library.setBundlePaths(merged, for: bundle)
+        bundles = library.bundles()
+    }
+
+    func removePath(_ path: String, from bundle: ContextBundle) {
+        guard let library else { return }
+        library.setBundlePaths(bundle.paths.filter { $0 != path }, for: bundle)
+        bundles = library.bundles()
+    }
+
+    func renameBundle(_ bundle: ContextBundle, to name: String) {
+        guard let library else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        library.renameBundle(bundle, to: trimmed)
+        bundles = library.bundles()
+    }
+
+    func deleteBundle(_ bundle: ContextBundle) {
+        guard let library else { return }
+        if activeBundle?.id == bundle.id { closeBundle() }
+        library.removeBundle(bundle)
+        bundles = library.bundles()
+    }
+
+    /// Show a bundle in the detail pane (supersedes any active scan).
+    func openBundle(_ bundle: ContextBundle) {
+        if activeScan != nil { closeScan() }
+        activeBundle = bundle
+    }
+
+    func closeBundle() { activeBundle = nil }
+
     // MARK: - Display name
 
     /// The label to show for a path: user override → auto parent-folder name for
@@ -991,6 +1087,7 @@ final class AppState {
 
     /// Choose a file from the sidebar: highlight immediately, then load.
     func choose(_ url: URL) {
+        if activeBundle != nil { closeBundle() }
         if activeScan != nil { closeScan() }
         selectedURL = url
         Task { await select(url) }
