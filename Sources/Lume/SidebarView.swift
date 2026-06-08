@@ -11,6 +11,7 @@ struct SidebarView: View {
                 List {
                     ScansRegion()
                     BundlesRegion()
+                    ActivityRegion()
                     GroupsRegion()
                     FavoritesRegion()
                     OpenFolderRegion()
@@ -193,6 +194,60 @@ private struct BundlesRegion: View {
             }
         } header: {
             Text("Bundles")
+        }
+    }
+}
+
+// MARK: - Activity
+
+private struct ActivityRegion: View {
+    @Environment(AppState.self) private var app
+
+    private static let timeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    var body: some View {
+        Section {
+            if app.recentChanges.isEmpty {
+                Text("Edits under this folder show up here.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(app.recentChanges.prefix(8)) { entry in
+                    let url = URL(fileURLWithPath: entry.path)
+                    Button {
+                        app.choose(url)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(url.lastPathComponent).font(.body).lineLimit(1)
+                                Text(url.deletingLastPathComponent().lastPathComponent)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer()
+                            Text(Self.timeFormatter.localizedString(for: entry.date, relativeTo: Date()))
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            HStack(spacing: 10) {
+                Text("Activity")
+                Spacer()
+                if !app.recentChanges.isEmpty {
+                    Button { app.clearActivityLog() } label: { Image(systemName: "xmark.circle") }
+                        .buttonStyle(.borderless)
+                        .help("Clear activity")
+                }
+            }
         }
     }
 }
