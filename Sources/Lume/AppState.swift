@@ -896,8 +896,8 @@ final class AppState {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         let roots = scanDraftRoots.map(\.path)
-        let name = scanDraftName.trimmingCharacters(in: .whitespaces).isEmpty
-            ? "Untitled Scan" : scanDraftName
+        let trimmedName = scanDraftName.trimmingCharacters(in: .whitespaces)
+        let name = trimmedName.isEmpty ? "Untitled Scan" : trimmedName
         guard let library, !patterns.isEmpty, !roots.isEmpty else {
             return   // invalid input: keep the editor open so the user can correct it
         }
@@ -991,6 +991,7 @@ final class AppState {
 
     /// Choose a file from the sidebar: highlight immediately, then load.
     func choose(_ url: URL) {
+        if activeScan != nil { closeScan() }
         selectedURL = url
         Task { await select(url) }
     }
