@@ -21,7 +21,15 @@ public actor SSHFileSource: FileSource {
 
     /// Double-quote a path for an sftp batch command (handles spaces; escapes
     /// embedded quotes/backslashes).
-    static func quote(_ path: String) -> String {
+    ///
+    /// Throws `SSHError.protocolFailure` if `path` contains a newline or
+    /// carriage-return character: sftp's batch tokenizer splits on newlines
+    /// unconditionally and no escape sequence exists, so the command would be
+    /// silently truncated or corrupted.
+    static func quote(_ path: String) throws -> String {
+        guard !path.contains("\n"), !path.contains("\r") else {
+            throw SSHError.protocolFailure(detail: "filename contains a newline: \(path)")
+        }
         let escaped = path
             .replacingOccurrences(of: #"\"#, with: #"\\"#)
             .replacingOccurrences(of: #"""#, with: #"\""#)
@@ -29,7 +37,7 @@ public actor SSHFileSource: FileSource {
     }
 
     public func list(_ path: String, includeHidden: Bool) async throws -> [ResourceNode] {
-        let out = try await transport.sftp(["ls -la \(Self.quote(path))"], path: path)
+        let out = try await transport.sftp(["ls -la \(try Self.quote(path))"], path: path)
         let base = path.hasSuffix("/") ? String(path.dropLast()) : path
         return SFTPListingParser.parse(out)
             .filter { TreeFilterRules.isVisible(name: $0.name, includeHidden: includeHidden) }
@@ -47,11 +55,13 @@ public actor SSHFileSource: FileSource {
     }
 
     public func read(_ path: String) async throws -> String {
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        // Process-private downloads dir; 0700 so another local user can't pre-plant a symlink.
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true,
+                                                  attributes: [.posixPermissions: 0o700])
         let local = tempDir.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: local) }
         _ = try await transport.sftp(
-            ["get \(Self.quote(path)) \(Self.quote(local.path))"], path: path)
+            ["get \(try Self.quote(path)) \(try Self.quote(local.path))"], path: path)
         guard let data = try? Data(contentsOf: local) else {
             throw SSHError.protocolFailure(detail: "download of \(path) produced no file")
         }
@@ -63,8 +73,13 @@ public actor SSHFileSource: FileSource {
 
     /// File-oriented stat: `ls -la <file>` lists exactly that file. If sftp
     /// listed multiple entries instead, `path` was a directory.
+    ///
+    /// Known limitation: a directory whose single child shares the directory's
+    /// own name (e.g. /srv/app/app as only entry of /srv/app) is misreported as
+    /// a file; callers treat stat results as hints, and the subsequent sftp
+    /// operation surfaces the real error.
     public func stat(_ path: String) async throws -> ResourceMeta {
-        let out = try await transport.sftp(["ls -la \(Self.quote(path))"], path: path)
+        let out = try await transport.sftp(["ls -la \(try Self.quote(path))"], path: path)
         let entries = SFTPListingParser.parse(out)
         let name = (path as NSString).lastPathComponent
         if entries.count == 1, let entry = entries.first,
@@ -78,7 +93,7 @@ public actor SSHFileSource: FileSource {
     /// Resolve a (possibly relative) remote path — used to turn the initial
     /// "." into the absolute home directory for breadcrumbs/recents.
     public func realpath(_ path: String) async throws -> String {
-        let out = try await transport.sftp(["cd \(Self.quote(path))", "pwd"], path: path)
+        let out = try await transport.sftp(["cd \(try Self.quote(path))", "pwd"], path: path)
         guard let resolved = SFTPListingParser.workingDirectory(in: out) else {
             throw SSHError.protocolFailure(detail: "couldn't resolve remote path \(path)")
         }
