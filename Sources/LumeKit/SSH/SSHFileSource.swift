@@ -121,8 +121,10 @@ public actor SSHFileSource: FileSource {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true,
                                                   attributes: [.posixPermissions: 0o700])
         let local = tempDir.appendingPathComponent(UUID().uuidString)
-        try Data(text.utf8).write(to: local)
+        // Register cleanup BEFORE the write so a failed/partial local write
+        // can't leave a stale staging file behind.
         defer { try? FileManager.default.removeItem(at: local) }
+        try Data(text.utf8).write(to: local)
 
         // Hoist quoted strings into lets — `try` inside string interpolations
         // or array literals is not allowed in Swift 6.
