@@ -1166,44 +1166,38 @@ final class AppState {
         overwrite(req.targets, withCanonical: canonicalURL)
     }
 
-    /// Overwrite each target with the canonical file's text; registers a single undo.
+    /// Overwrite each target with the canonical file's text; registers a single
+    /// undo. The file I/O runs off the main actor (an "Overwrite all differing
+    /// (N)" over many files would otherwise beachball the UI); the outcome —
+    /// undo registration, cache invalidation, report banner — applies on main.
     private func overwrite(_ targets: [URL], withCanonical canonical: URL) {
-        guard let canonText = try? String(contentsOf: canonical, encoding: .utf8) else {
-            errorMessage = "Couldn't read the canonical file."
-            return
-        }
-        var restores: [(url: URL, text: String)] = []
-        var skipped: [String] = []
-        for target in targets where target.path != canonical.path {
-            // Only overwrite files we can read back as UTF-8 text. A binary or
-            // non-UTF-8 target has no faithful undo (we'd capture "" and restore an
-            // empty file), so skip it entirely rather than risk destroying data.
-            guard let old = try? String(contentsOf: target, encoding: .utf8) else {
-                skipped.append(target.lastPathComponent)
-                continue
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                CanonicalOverwrite.run(targets: targets, canonical: canonical)
+            }.value
+            guard let outcome else {
+                showNotice("Couldn't read the canonical file.")
+                return
             }
-            do {
-                try TextDocument(url: target, text: canonText).save()
-                restores.append((target, old))
-                cache.invalidate(path: target.deletingLastPathComponent().path)
-            } catch {
-                skipped.append(target.lastPathComponent)
+            for restore in outcome.restores {
+                cache.invalidate(path: restore.url.deletingLastPathComponent().path)
             }
-        }
-        if !restores.isEmpty {
-            registerUndo("Overwrite with Canonical") { [weak self] in
-                for (url, text) in restores {
-                    try? TextDocument(url: url, text: text).save()
-                    self?.cache.invalidate(path: url.deletingLastPathComponent().path)
+            if !outcome.restores.isEmpty {
+                let restores = outcome.restores
+                registerUndo("Overwrite with Canonical") { [weak self] in
+                    for restore in restores {
+                        try? TextDocument(url: restore.url, text: restore.text).save()
+                        self?.cache.invalidate(path: restore.url.deletingLastPathComponent().path)
+                    }
+                    Task { await self?.recomputeSyncStatus() }
                 }
-                Task { await self?.recomputeSyncStatus() }
             }
+            if !outcome.skipped.isEmpty {
+                let n = outcome.restores.count
+                showNotice("Overwrote \(n) file\(n == 1 ? "" : "s"); skipped \(outcome.skipped.count) not readable as text: \(outcome.skipped.joined(separator: ", "))")
+            }
+            await recomputeSyncStatus()
         }
-        if !skipped.isEmpty {
-            let n = restores.count
-            errorMessage = "Overwrote \(n) file\(n == 1 ? "" : "s"); skipped \(skipped.count) not readable as text: \(skipped.joined(separator: ", "))"
-        }
-        Task { await recomputeSyncStatus() }
     }
 
     // MARK: - Copy as Context
