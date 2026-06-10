@@ -27,4 +27,8 @@ import SwiftData
     try context.save()
     #expect(try context.fetch(FetchDescriptor<Favorite>()).count == 1)
     #expect(try context.fetch(FetchDescriptor<ContextBundle>()).count == 1)
+    #expect(try context.fetch(FetchDescriptor<Bookmark>()).count == 1)
+    #expect(try context.fetch(FetchDescriptor<LumeKit.Tag>()).count == 1)
+    #expect(try context.fetch(FetchDescriptor<FileMeta>()).count == 1)
+    #expect(try context.fetch(FetchDescriptor<Scan>()).count == 1)
 }

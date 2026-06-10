@@ -1,4 +1,3 @@
-import Foundation
 import SwiftData
 
 /// Versioned snapshot of the store layout (audit A3b). ALL container creation
