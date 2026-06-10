@@ -1216,16 +1216,24 @@ final class AppState {
     // MARK: - Copy as Context
 
     /// Copy the given files' CONTENTS as one LLM-pasteable blob. If any file
-    /// looks like a secret, stage a confirmation instead of copying immediately.
+    /// LOOKS secret by name, or the assembled text CONTAINS something shaped
+    /// like a credential, stage a confirmation instead of copying immediately.
     func copyAsContext(urls: [URL]) {
         var seen = Set<URL>()
         let unique = urls.filter { seen.insert($0).inserted }
         guard !unique.isEmpty else { return }
-        if SecretDetector.sensitiveFiles(in: unique).isEmpty {
-            performContextCopy(unique)
-        } else {
+        if !SecretDetector.sensitiveFiles(in: unique).isEmpty {
             pendingContextCopy = unique
+            return
         }
+        // Filenames look clean — scan the assembled contents too, so an AWS
+        // key sitting inside an innocuous config.json still warns.
+        let assembled = ContextAssembler.assemble(unique, format: contextFormat)
+        if SecretDetector.containsLikelySecret(assembled.text) {
+            pendingContextCopy = unique
+            return
+        }
+        Pasteboard.write(assembled.text, concealed: true)
     }
 
     /// Copy the current Scan triage ticked set as context.
@@ -1238,6 +1246,7 @@ final class AppState {
 
     func cancelPendingContextCopy() { pendingContextCopy = nil }
 
+    /// Assemble and copy without re-scanning (the user already confirmed).
     private func performContextCopy(_ urls: [URL]) {
         let assembled = ContextAssembler.assemble(urls, format: contextFormat)
         Pasteboard.write(assembled.text, concealed: true)

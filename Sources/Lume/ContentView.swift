@@ -21,7 +21,7 @@ struct ContentView: View {
         }
         .modifier(ModifierPeekMonitor())
         .confirmationDialog(
-            "This selection includes secrets (e.g. .env). Copy their contents anyway?",
+            "This selection looks like it includes secrets (a sensitive filename, or credential-shaped content). Copy anyway?",
             isPresented: Binding(
                 get: { app.pendingContextCopy != nil },
                 set: { if !$0 { app.cancelPendingContextCopy() } }
