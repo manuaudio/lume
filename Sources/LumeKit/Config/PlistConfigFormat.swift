@@ -110,8 +110,9 @@ private final class PlistBuilder: NSObject, XMLParserDelegate {
         if capturing { text += string }
     }
 
-    /// XMLParser routes `<![CDATA[…]]>` here, not to `foundCharacters` —
-    /// without this, CDATA content inside a leaf silently parses to "".
+    /// Defensive: the delegate contract routes `<![CDATA[…]]>` here. Apple's
+    /// Foundation falls back to `foundCharacters` when this is unimplemented,
+    /// but that fallback is undocumented — handle CDATA explicitly.
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
         guard capturing else { return }
         guard let decoded = String(data: CDATABlock, encoding: .utf8) else {

@@ -82,8 +82,8 @@ import Testing
     }
 
     @Test func preservesCDATAContent() throws {
-        // Fails before the fix: missing foundCDATA handler parsed the string to ""
-        // and saving deleted the content.
+        // Defensive coverage: CDATA must parse identically whether delivered via
+        // foundCDATA or Foundation's undocumented foundCharacters fallback.
         let sample = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
