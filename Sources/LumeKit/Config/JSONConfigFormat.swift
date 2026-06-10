@@ -29,6 +29,11 @@ public enum JSONConfigFormat: ConfigFormat {
             out.append(b ? "true" : "false")
         case .null:
             out.append("null")
+        case let .date(d):
+            // JSON has no date or binary types; both degrade to strings.
+            out.append(encodeString(d))
+        case let .data(d):
+            out.append(encodeString(d))
         case let .array(items):
             if items.isEmpty { out.append("[]"); return }
             out.append("[\n")

@@ -46,6 +46,10 @@ public enum PlistConfigFormat: ConfigFormat {
         case .null:
             // plist has no null; represent as an empty string to keep round-trips lossless-ish.
             out.append("\(pad)<string></string>\n")
+        case let .date(d):
+            out.append("\(pad)<date>\(escape(d))</date>\n")
+        case let .data(d):
+            out.append("\(pad)<data>\(escape(d))</data>\n")
         case let .array(items):
             if items.isEmpty { out.append("\(pad)<array/>\n"); return }
             out.append("\(pad)<array>\n")

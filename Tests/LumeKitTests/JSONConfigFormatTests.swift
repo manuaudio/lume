@@ -46,4 +46,18 @@ import Testing
             try JSONConfigFormat.parse(#"{"a": }"#)
         }
     }
+
+    // Formats without native date/data types degrade the new cases to plain
+    // strings, never crash.
+    @Test func serializesDateAndDataCasesAsStrings() throws {
+        let value = ConfigValue.object([
+            ConfigEntry(key: "d", value: .date("2024-06-01")),
+            ConfigEntry(key: "b", value: .data("aGVsbG8=")),
+        ])
+        let out = try JSONConfigFormat.serialize(value)
+        #expect(try JSONConfigFormat.parse(out) == .object([
+            ConfigEntry(key: "d", value: .string("2024-06-01")),
+            ConfigEntry(key: "b", value: .string("aGVsbG8=")),
+        ]))
+    }
 }

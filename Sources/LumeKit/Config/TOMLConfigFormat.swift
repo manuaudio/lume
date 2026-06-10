@@ -63,6 +63,8 @@ public enum TOMLConfigFormat: ConfigFormat {
             return Double(n) ?? 0
         case let .bool(b): return b
         case .null: return ""   // TOML has no null; closest stable mapping is empty string
+        case let .date(lexeme): return lexeme   // refined to native TOML dates in Task 30
+        case let .data(base64): return base64   // TOML has no binary type; base64 text as string
         case let .array(items): return TOMLArray(items.map(tomlValue))
         case let .object(entries): return buildTable(entries)
         }

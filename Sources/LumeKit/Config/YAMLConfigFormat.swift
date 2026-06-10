@@ -47,6 +47,10 @@ public enum YAMLConfigFormat: ConfigFormat {
             return Node(n, Yams.Tag(tag))
         case let .bool(b): return Node(b ? "true" : "false", Yams.Tag(.bool))
         case .null: return Node("null", Yams.Tag(.null))
+        // Date lexemes stay plain — they re-resolve as YAML timestamps, which
+        // `convert` maps back to text either way. Base64 blobs are strings here.
+        case let .date(d): return Node(d, Yams.Tag(.str))
+        case let .data(d): return Node(d, Yams.Tag(.str))
         case let .array(items): return Node(items.map(build), Yams.Tag(.seq))
         case let .object(entries):
             return Node(entries.map { (Node($0.key, Yams.Tag(.str)), build($0.value)) }, Yams.Tag(.map))

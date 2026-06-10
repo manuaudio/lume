@@ -128,6 +128,21 @@ private struct ConfigNodeView: View {
             leaf {
                 Toggle("", isOn: Binding(get: { b }, set: { value = .bool($0) })).labelsHidden()
             }
+        case .date(let d):
+            leaf {
+                TextField("", text: Binding(get: { d }, set: { value = .date($0) }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+            }
+        case .data(let d):
+            // Binary payloads aren't editable inline; show the base64 read-only.
+            leaf {
+                Text(d)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         case .null:
             leaf { Text("null").foregroundStyle(.tertiary) }
         }

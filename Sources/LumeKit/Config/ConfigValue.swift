@@ -2,12 +2,18 @@ import Foundation
 
 /// An editable structured config value. The in-memory model that structured
 /// editors bind to, independent of the on-disk format. Numbers keep their raw
-/// lexeme so `1` and `1.0` round-trip exactly.
+/// lexeme so `1` and `1.0` round-trip exactly; dates and binary data likewise
+/// keep their textual form (ISO-ish date lexeme, base64) so formats with
+/// native types (plist `<date>`/`<data>`, TOML date/time) round-trip losslessly.
 public indirect enum ConfigValue: Equatable, Sendable {
     case string(String)
     case number(String)
     case bool(Bool)
     case null
+    /// A date/time value, stored as its raw source lexeme (e.g. "2024-06-01").
+    case date(String)
+    /// Binary data, stored as the base64 text from the source document.
+    case data(String)
     case array([ConfigValue])
     case object([ConfigEntry])
 }
