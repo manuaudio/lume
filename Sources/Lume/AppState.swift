@@ -99,6 +99,11 @@ final class AppState {
     var scanFocusURL: URL?
     private(set) var isScanning = false
     private var scanGeneration = 0
+    /// Guards stale sync recomputes (mirrors what `scanGeneration` does for
+    /// `runScan`): a recompute that finishes after the scan closed — or after a
+    /// newer recompute started — must not repopulate `syncStatus`, which feeds
+    /// the destructive "Overwrite all differing" flow.
+    private var syncGeneration = Generation()
 
     // MARK: - Propagate (canonical sync) state
 
@@ -1043,6 +1048,7 @@ final class AppState {
 
     func closeScan() {
         scanGeneration += 1  // discard any in-flight sweep
+        syncGeneration.advance()  // discard any in-flight sync recompute
         activeScan = nil
         scanResults = []
         tickedPaths = []
@@ -1090,6 +1096,7 @@ final class AppState {
 
     /// Recompute each result's sync status vs the canonical file, off-main.
     func recomputeSyncStatus() async {
+        let token = syncGeneration.advance()
         guard let canonicalURL else { syncStatus = [:]; return }
         let canonicalPath = canonicalURL.path
         let results = scanResults.map(\.path)
@@ -1108,6 +1115,7 @@ final class AppState {
             }
             return out
         }.value
+        guard syncGeneration.isCurrent(token) else { return }  // scan closed / superseded while computing
         syncStatus = computed
     }
 
