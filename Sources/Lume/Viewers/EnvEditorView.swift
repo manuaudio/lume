@@ -73,11 +73,16 @@ struct EnvEditorView: View {
     private func bindingForValue(index: Int, key: String) -> Binding<String> {
         Binding(
             get: {
-                if case let .entry(e) = lines[index] { return e.value }
-                return ""
+                // `lines` can be reloaded (file switch / external change) while a
+                // row's binding is still live — re-check bounds and key before use.
+                guard lines.indices.contains(index),
+                      case let .entry(e) = lines[index], e.key == key else { return "" }
+                return e.value
             },
             set: { newValue in
-                lines[index] = .entry(EnvEntry(key: key, value: newValue))
+                guard lines.indices.contains(index),
+                      case let .entry(e) = lines[index], e.key == key else { return }
+                lines[index] = .entry(EnvEntry(key: e.key, value: newValue))
                 let text = serialize()
                 lastPushed = text
                 app.documentTextChanged(text)
