@@ -175,6 +175,69 @@ public final class LibraryStore {
         return name.isEmpty ? nil : name
     }
 
+    // MARK: Path repointing
+
+    /// Re-point every path-keyed row from `oldPath` to `newPath` after a rename
+    /// or move on disk, so tags, notes, hidden flags, display names, favorites,
+    /// scan roots/canonicals, and bundle members survive the operation.
+    ///
+    /// Scope: ALL path-keyed columns — `FileMeta.path`, `Favorite.path`,
+    /// `Scan.roots`, `Scan.canonicalPath`, `ContextBundle.paths` — because the
+    /// orphaning bug is identical for each, and a stale `canonicalPath` is the
+    /// worst of them (it feeds the destructive overwrite-all flow). The
+    /// vestigial `Bookmark` is excluded: its table is emptied at attach by
+    /// `migrateBookmarksToFavorites()`.
+    ///
+    /// Directory moves repoint descendants too: every stored path is an
+    /// absolute POSIX string, so "row is under the moved directory" is exactly
+    /// a `oldPath + "/"` prefix match ("/a/bc" is NOT under "/a/b").
+    ///
+    /// If a row already exists at a destination path (its unique attribute
+    /// would collide), the destination row is deleted and the moved row wins —
+    /// it carries the user's accumulated metadata.
+    public func repointPath(from oldPath: String, to newPath: String) {
+        guard !oldPath.isEmpty, !newPath.isEmpty, oldPath != newPath else { return }
+        let prefix = oldPath + "/"
+
+        func remapped(_ path: String) -> String? {
+            if path == oldPath { return newPath }
+            if path.hasPrefix(prefix) { return newPath + path.dropFirst(oldPath.count) }
+            return nil
+        }
+
+        let metas = (try? context.fetch(FetchDescriptor<FileMeta>(
+            predicate: #Predicate { $0.path == oldPath || $0.path.starts(with: prefix) }
+        ))) ?? []
+        for m in metas {
+            guard let target = remapped(m.path) else { continue }
+            if let clash = meta(for: target) { context.delete(clash) }
+            m.path = target
+        }
+
+        let favs = (try? context.fetch(FetchDescriptor<Favorite>(
+            predicate: #Predicate { $0.path == oldPath || $0.path.starts(with: prefix) }
+        ))) ?? []
+        for f in favs {
+            guard let target = remapped(f.path) else { continue }
+            if let clash = favorite(for: target) { context.delete(clash) }
+            f.path = target
+        }
+
+        for scan in scans() {
+            let roots = scan.roots.map { remapped($0) ?? $0 }
+            if roots != scan.roots { scan.roots = roots }
+            if let canonical = scan.canonicalPath, let target = remapped(canonical) {
+                scan.canonicalPath = target
+            }
+        }
+        for bundle in bundles() {
+            let paths = bundle.paths.map { remapped($0) ?? $0 }
+            if paths != bundle.paths { bundle.paths = paths }
+        }
+
+        save("repointPath")
+    }
+
     public func files(taggedWith name: String) -> [FileMeta] {
         guard let tag = existingTag(named: name) else { return [] }
         return tag.files
