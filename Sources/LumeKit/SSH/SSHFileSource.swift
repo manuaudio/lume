@@ -100,8 +100,48 @@ public actor SSHFileSource: FileSource {
         return resolved
     }
 
+    /// Atomic, permission-preserving save:
+    ///   1. stat the original (mode capture — also fails fast if it vanished),
+    ///   2. upload the buffer to `<path>.lume-tmp-<suffix>` in the same dir,
+    ///   3. chmod the temp to the original's mode,
+    ///   4. rename over the original (OpenSSH uses posix-rename → atomic).
+    ///
+    /// The original is never touched until the rename, so readers can never
+    /// observe a partial file — even if the rename itself fails the original
+    /// is intact. On any batch failure the temp is removed best-effort; if
+    /// that cleanup sftp call also fails the remote temp is an orphan, but the
+    /// original is still unmodified and the caller's data is safe.
     public func write(_ text: String, to path: String) async throws {
-        // Implemented in the next task (atomic temp + rename).
-        throw SSHError.protocolFailure(detail: "write not implemented yet")
+        let meta = try await stat(path)
+        let mode = String(format: "%o", (meta.mode ?? 0o644) & 0o777)
+        let remoteTemp = "\(path).lume-tmp-\(tempSuffix())"
+
+        // Process-private staging dir; 0700 so another local user can't
+        // pre-plant a symlink (mirrors the same guard in read()).
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true,
+                                                  attributes: [.posixPermissions: 0o700])
+        let local = tempDir.appendingPathComponent(UUID().uuidString)
+        try Data(text.utf8).write(to: local)
+        defer { try? FileManager.default.removeItem(at: local) }
+
+        // Hoist quoted strings into lets — `try` inside string interpolations
+        // or array literals is not allowed in Swift 6.
+        let quotedLocal      = try Self.quote(local.path)
+        let quotedRemoteTemp = try Self.quote(remoteTemp)
+        let quotedPath       = try Self.quote(path)
+
+        do {
+            _ = try await transport.sftp([
+                "put \(quotedLocal) \(quotedRemoteTemp)",
+                "chmod \(mode) \(quotedRemoteTemp)",
+                "rename \(quotedRemoteTemp) \(quotedPath)",
+            ], path: path)
+        } catch {
+            // Best-effort cleanup of the remote temp. sftp's `-b` flag aborts
+            // the batch at the first failing command, so the rename (step 4)
+            // was never reached and the original is untouched.
+            _ = try? await transport.sftp(["rm \(quotedRemoteTemp)"])
+            throw error
+        }
     }
 }
