@@ -42,4 +42,35 @@ import Testing
             try YAMLConfigFormat.parse("key: [unclosed")
         }
     }
+
+    @Test func quotesStringsThatWouldRetypeOnRoundTrip() throws {
+        // Fails before the fix: "1.0" re-parses as .number, "true"/"no" as .bool,
+        // "null"/"" as .null, "0x1F" as .number.
+        let value = ConfigValue.object([
+            ConfigEntry(key: "version", value: .string("1.0")),
+            ConfigEntry(key: "flag", value: .string("true")),
+            ConfigEntry(key: "negative", value: .string("no")),
+            ConfigEntry(key: "nothing", value: .string("null")),
+            ConfigEntry(key: "hex", value: .string("0x1F")),
+            ConfigEntry(key: "empty", value: .string("")),
+        ])
+        let out = try YAMLConfigFormat.serialize(value)
+        #expect(try YAMLConfigFormat.parse(out) == value)
+        #expect(out.contains(#"version: "1.0""#))
+    }
+
+    @Test func unambiguousStringsStayUnquoted() throws {
+        let value = ConfigValue.object([ConfigEntry(key: "name", value: .string("lume"))])
+        let out = try YAMLConfigFormat.serialize(value)
+        #expect(out.contains("name: lume"))
+        #expect(!out.contains(#""lume""#))
+    }
+
+    @Test func timestampLikeStringsRoundTripUnquoted() throws {
+        let value = try YAMLConfigFormat.parse("released: 2024-06-01")
+        let out = try YAMLConfigFormat.serialize(value)
+        #expect(out.contains("released: 2024-06-01"))
+        #expect(!out.contains(#""2024-06-01""#))
+        #expect(try YAMLConfigFormat.parse(out) == value)
+    }
 }

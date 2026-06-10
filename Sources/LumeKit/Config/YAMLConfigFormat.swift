@@ -41,7 +41,7 @@ public enum YAMLConfigFormat: ConfigFormat {
 
     private static func build(_ value: ConfigValue) -> Node {
         switch value {
-        case let .string(s): return Node(s, Yams.Tag(.str))
+        case let .string(s): return Node(s, Yams.Tag(.str), scalarStyle(for: s))
         case let .number(n):
             let tag: Yams.Tag.Name = (n.contains(".") || n.lowercased().contains("e")) ? .float : .int
             return Node(n, Yams.Tag(tag))
@@ -50,10 +50,20 @@ public enum YAMLConfigFormat: ConfigFormat {
         // Date lexemes stay plain — they re-resolve as YAML timestamps, which
         // `convert` maps back to text either way. Base64 blobs are strings here.
         case let .date(d): return Node(d, Yams.Tag(.str))
-        case let .data(d): return Node(d, Yams.Tag(.str))
+        case let .data(d): return Node(d, Yams.Tag(.str), scalarStyle(for: d))
         case let .array(items): return Node(items.map(build), Yams.Tag(.seq))
         case let .object(entries):
             return Node(entries.map { (Node($0.key, Yams.Tag(.str)), build($0.value)) }, Yams.Tag(.map))
         }
+    }
+
+    /// Plain-style emission drops the `!!str` tag, so a string whose text would
+    /// re-resolve as another scalar type — "true", "no", "1.0", "null", "0x1F",
+    /// "" — must be double-quoted or one save silently changes its type.
+    /// Timestamps stay plain: `convert` maps them to `.string` on read anyway,
+    /// so quoting would needlessly retype real YAML dates.
+    private static func scalarStyle(for s: String) -> Node.Scalar.Style {
+        let resolved = Resolver.default.resolveTag(of: Node(s))
+        return (resolved == .str || resolved == .timestamp) ? .any : .doubleQuoted
     }
 }
