@@ -2,19 +2,6 @@ import Testing
 import SwiftData
 @testable import LumeKit
 
-@MainActor @Test func reorderBookmarksPersistsOrder() throws {
-    let (store, container) = try makeLibrary()
-    defer { withExtendedLifetime(container) {} }
-
-    store.addBookmark(path: "/a")
-    store.addBookmark(path: "/b")
-    store.addBookmark(path: "/c")
-    #expect(store.bookmarks().map(\.path) == ["/a", "/b", "/c"])
-
-    store.reorderBookmarks(["/c", "/a", "/b"])
-    #expect(store.bookmarks().map(\.path) == ["/c", "/a", "/b"])
-}
-
 @MainActor @Test func reorderFavoritesPersistsOrder() throws {
     let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
@@ -39,28 +26,6 @@ import SwiftData
     // Clearing the name returns nil again (empty is treated as "no label").
     store.setMeta(path: "/p/.env", info: "", tagNames: ["prod"], displayName: "")
     #expect(store.displayName(for: "/p/.env") == nil)
-}
-
-@MainActor @Test func bookmarksAreIndependentOfFavorites() throws {
-    let (store, container) = try makeLibrary()
-    defer { withExtendedLifetime(container) {} }
-
-    #expect(store.isBookmarked(path: "/work") == false)
-    store.addBookmark(path: "/work")
-    store.addBookmark(path: "/work")            // no duplicate
-    #expect(store.bookmarks().map(\.path) == ["/work"])
-    #expect(store.isBookmarked(path: "/work") == true)
-
-    // A folder can be both bookmarked and favorited (separate models).
-    store.addFavoriteFolder(path: "/work")
-    #expect(store.isFavorite(path: "/work") == true)
-    #expect(store.isBookmarked(path: "/work") == true)
-    // favorites() does not leak bookmarks.
-    #expect(store.favorites().allSatisfy { $0.kindRaw != "bookmark" })
-
-    store.removeBookmark(path: "/work")
-    #expect(store.isBookmarked(path: "/work") == false)
-    #expect(store.isFavorite(path: "/work") == true)   // favorite survives
 }
 
 @MainActor @Test func favoriteFoldersAndIsFavorite() throws {
@@ -123,9 +88,13 @@ import SwiftData
 @MainActor @Test func migrateBookmarksBecomeFolderFavorites() throws {
     let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
+    let context = container.mainContext
 
-    store.addBookmark(path: "/work")
-    store.addBookmark(path: "/docs")
+    // The Bookmark CRUD API is gone; seed legacy rows directly, exactly as an
+    // old store version would have persisted them.
+    context.insert(Bookmark(path: "/work", sortIndex: 0))
+    context.insert(Bookmark(path: "/docs", sortIndex: 1))
+    try context.save()
     store.addFavoriteFolder(path: "/work")   // already favorited too
 
     let migratedCount = store.migrateBookmarksToFavorites()
@@ -134,18 +103,19 @@ import SwiftData
     #expect(migratedCount == 1)
     #expect(store.isFavorite(path: "/docs") == true)
     #expect(store.favorites().first { $0.path == "/docs" }?.kindRaw == "folder")
-    // Bookmarks are cleared after migration so it never runs twice.
-    #expect(store.bookmarks().isEmpty)
-    // Running again is a no-op.
+    // Bookmark rows are cleared after migration so it never runs twice.
+    #expect(try context.fetch(FetchDescriptor<Bookmark>()).isEmpty)
     #expect(store.migrateBookmarksToFavorites() == 0)
 }
 
 @MainActor @Test func migrateAssignsDistinctSortIndexes() throws {
     let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
+    let context = container.mainContext
 
-    store.addBookmark(path: "/a")
-    store.addBookmark(path: "/b")
+    context.insert(Bookmark(path: "/a", sortIndex: 0))
+    context.insert(Bookmark(path: "/b", sortIndex: 1))
+    try context.save()
     store.migrateBookmarksToFavorites()
 
     let favs = store.favorites().filter { $0.path == "/a" || $0.path == "/b" }

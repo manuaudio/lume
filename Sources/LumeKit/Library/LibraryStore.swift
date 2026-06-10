@@ -50,46 +50,21 @@ public final class LibraryStore {
         return try? context.fetch(d).first
     }
 
-    // MARK: Bookmarks (folders pinned to the top of Browse)
-
-    public func addBookmark(path: String) {
-        if bookmark(for: path) != nil { return }
-        context.insert(Bookmark(path: path, sortIndex: bookmarks().count))
-        try? context.save()
-    }
-
-    /// Persist a new ordering for bookmarks (drag-to-reorder).
-    public func reorderBookmarks(_ orderedPaths: [String]) {
-        for (i, p) in orderedPaths.enumerated() {
-            bookmark(for: p)?.sortIndex = i
-        }
-        try? context.save()
-    }
-
-    public func removeBookmark(path: String) {
-        if let b = bookmark(for: path) { context.delete(b); try? context.save() }
-    }
-
-    public func isBookmarked(path: String) -> Bool { bookmark(for: path) != nil }
-
-    public func bookmarks() -> [Bookmark] {
-        (try? context.fetch(
-            FetchDescriptor<Bookmark>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
-        )) ?? []
-    }
-
-    private func bookmark(for path: String) -> Bookmark? {
-        var d = FetchDescriptor<Bookmark>(predicate: #Predicate { $0.path == path })
-        d.fetchLimit = 1
-        return try? context.fetch(d).first
-    }
+    // MARK: Bookmarks (legacy — model retained for schema compatibility only)
 
     /// One-time migration: every bookmarked folder becomes a folder `Favorite`
     /// (pins unify onto Favorites), then the bookmark table is cleared so this is
     /// idempotent. Returns how many NEW favorites were created.
+    ///
+    /// This is the ONLY remaining `Bookmark` API — the CRUD surface (add/reorder/
+    /// remove/isBookmarked/bookmarks) was dead code and is gone. The `@Model`
+    /// itself stays in `LumeSchemaV1` so existing stores keep opening; it gets
+    /// dropped in a future `LumeSchemaV2` migration stage.
     @discardableResult
     public func migrateBookmarksToFavorites() -> Int {
-        let existing = bookmarks()
+        let existing = (try? context.fetch(
+            FetchDescriptor<Bookmark>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
+        )) ?? []
         let base = favorites().count
         var created = 0
         for bm in existing {
