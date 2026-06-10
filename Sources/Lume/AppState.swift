@@ -935,9 +935,9 @@ final class AppState {
                 try fm.trashItem(at: u, resultingItemURL: &resulting)
                 if let r = resulting as URL? { restores.append((r, u)) }
                 cache.invalidate(path: u.deletingLastPathComponent().path)
-                if selectedURL == u { selectedURL = nil; documentText = nil }
+                if selectedURL == u { closeDocument() }
             } catch {
-                errorMessage = "Couldn't trash \(u.lastPathComponent): \(error.localizedDescription)"
+                showNotice("Couldn't trash \(u.lastPathComponent): \(error.localizedDescription)")
             }
         }
         clearSelection()
@@ -948,6 +948,18 @@ final class AppState {
                 self.cache.invalidate(path: original.deletingLastPathComponent().path)
             }
         }
+    }
+
+    /// Reset every piece of open-document state. Clearing only `selectedURL` /
+    /// `documentText` leaves `loadedText`/`isDirty`/`selectedKind` stale: Save
+    /// stays enabled after the open document is trashed and silently no-ops.
+    private func closeDocument() {
+        loadTask?.cancel()
+        selectedURL = nil
+        documentText = nil
+        loadedText = nil
+        isDirty = false
+        selectedKind = .unsupported
     }
 
     /// Reveal the selection in Finder.
