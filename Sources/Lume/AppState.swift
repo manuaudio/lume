@@ -223,10 +223,19 @@ final class AppState {
     // MARK: - Library wiring
 
     /// Connect the SwiftData-backed library (called once the container is ready).
-    func attach(library: LibraryStore) {
+    func attach(library: LibraryStore, storeHealth: StoreHealth = .healthy) {
         self.library = library
         library.migrateBookmarksToFavorites()
         refreshLibrary()
+        switch storeHealth {
+        case .healthy:
+            break
+        case .recoveredFromCorruption(let backupURL):
+            let suffix = backupURL.map { " Old data saved at \($0.lastPathComponent)." } ?? ""
+            showNotice("Your library couldn't be read and was reset.\(suffix)", duration: .seconds(15))
+        case .ephemeral:
+            showNotice("Your library is running in-memory: favorites and tags won't persist.", duration: .seconds(15))
+        }
     }
 
     /// Re-read the cached library projections (favorites / tags / hidden paths).
