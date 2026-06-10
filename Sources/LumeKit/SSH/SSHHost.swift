@@ -3,7 +3,10 @@ import Foundation
 /// One connectable host. A pure-config host carries only `alias` (ssh resolves
 /// user/port/keys from ~/.ssh/config); a manual host carries explicit fields.
 public struct SSHHost: Codable, Hashable, Sendable, Identifiable {
-    public var alias: String         // display name + ControlPath key
+    /// Display name and ControlPath key. Used as the ControlPath socket filename,
+    /// so it should be filesystem-safe; the transport layer sanitizes when building
+    /// the socket path.
+    public var alias: String
     public var hostname: String?     // nil → alias is resolved by ssh config
     public var user: String?
     public var port: Int?
@@ -21,6 +24,7 @@ public struct SSHHost: Codable, Hashable, Sendable, Identifiable {
     }
 
     /// The destination argument: "user@host" for manual hosts, bare alias otherwise.
+    /// An explicit `user` overrides the config-resolved user even for alias-only hosts.
     public var destination: String {
         let target = hostname ?? alias
         if let user, !user.isEmpty { return "\(user)@\(target)" }

@@ -38,9 +38,13 @@ struct SSHErrorTests {
         #expect(map("something nobody expected") == .protocolFailure(detail: "something nobody expected"))
     }
 
+    @Test func emptyStderrReportsExitCode() {
+        #expect(map("") == .protocolFailure(detail: "exit code 1"))
+    }
+
     @Test func messagesAreHuman() {
         #expect(SSHError.permissionDenied(path: "/etc/nginx/nginx.conf").userMessage
-                == "The remote user can't write /etc/nginx/nginx.conf.")
+                == "Permission denied for /etc/nginx/nginx.conf.")
         #expect(SSHError.authFailed.userMessage.contains("Authentication failed"))
     }
 }

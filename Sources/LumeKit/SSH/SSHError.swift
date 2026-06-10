@@ -5,6 +5,7 @@ import Foundation
 public enum SSHError: Error, Equatable, Sendable {
     case connectFailed(detail: String)
     case authFailed
+    /// Thrown directly by the transport after a process deadline; `map` never returns this.
     case timeout(executable: String)
     case permissionDenied(path: String)
     case notFound(path: String)
@@ -20,7 +21,7 @@ public enum SSHError: Error, Equatable, Sendable {
         case .timeout(let executable):
             return "The remote operation timed out (\((executable as NSString).lastPathComponent))."
         case .permissionDenied(let path):
-            return "The remote user can't write \(path)."
+            return "Permission denied for \(path)."
         case .notFound(let path):
             return "\(path) doesn't exist on the remote."
         case .connectionLost:
@@ -37,17 +38,20 @@ public enum SSHError: Error, Equatable, Sendable {
         let text = String(decoding: stderr, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = text.lowercased()
+        let firstLine = text.components(separatedBy: .newlines)
+            .first(where: { !$0.isEmpty })?
+            .trimmingCharacters(in: .whitespaces) ?? ""
         if lower.contains("permission denied (") { return .authFailed }
         if lower.contains("permission denied") { return .permissionDenied(path: path ?? "the file") }
         if lower.contains("no such file") { return .notFound(path: path ?? "the path") }
         if lower.contains("connection refused") || lower.contains("could not resolve")
             || lower.contains("operation timed out") || lower.contains("network is unreachable") {
-            return .connectFailed(detail: text)
+            return .connectFailed(detail: firstLine.isEmpty ? "exit code \(exitCode)" : firstLine)
         }
         if lower.contains("connection closed") || lower.contains("broken pipe")
             || lower.contains("mux_client") || lower.contains("connection reset") {
             return .connectionLost
         }
-        return .protocolFailure(detail: text.isEmpty ? "exit code \(exitCode)" : text)
+        return .protocolFailure(detail: firstLine.isEmpty ? "exit code \(exitCode)" : firstLine)
     }
 }

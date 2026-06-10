@@ -10,9 +10,9 @@ struct SSHHostTests {
 
     @Test func manualHostBuildsDestinationAndFlags() {
         let host = SSHHost(alias: "prod", hostname: "10.0.0.5", user: "deploy",
-                           port: 2222, identityFile: "/Users/manu/.ssh/id_prod")
+                           port: 2222, identityFile: "/keys/id_prod")
         #expect(host.destination == "deploy@10.0.0.5")
-        #expect(host.flags(portFlag: "-p") == ["-p", "2222", "-i", "/Users/manu/.ssh/id_prod"])
-        #expect(host.flags(portFlag: "-P") == ["-P", "2222", "-i", "/Users/manu/.ssh/id_prod"])
+        #expect(host.flags(portFlag: "-p") == ["-p", "2222", "-i", "/keys/id_prod"])
+        #expect(host.flags(portFlag: "-P") == ["-P", "2222", "-i", "/keys/id_prod"])
     }
 }
