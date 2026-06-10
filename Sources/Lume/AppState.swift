@@ -84,6 +84,9 @@ final class AppState {
     /// The undo manager backing file operations (⌘Z): the window's undo manager,
     /// attached from ContentView, so the standard Edit ▸ Undo/Redo items reach
     /// it through the responder chain whenever a text view doesn't have focus.
+    /// NOTE: with multiple windows the last-attached window's manager wins, and
+    /// closing it drops file-op undo until another window attaches — acceptable
+    /// for the current shared-AppState window design (see LumeApp).
     private(set) weak var undoManager: UndoManager?
 
     /// Adopt the window's undo manager for file operations.
