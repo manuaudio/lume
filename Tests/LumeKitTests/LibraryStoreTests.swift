@@ -273,3 +273,28 @@ import SwiftData
     #expect(store.paths(taggedWithAll: []).isEmpty)
     #expect(store.paths(taggedWithAny: []).isEmpty)
 }
+
+@MainActor @Test func mergeTagsLeavesUnrelatedEmptyTagsAlone() throws {
+    let (store, container) = try makeLibrary()
+    defer { withExtendedLifetime(container) {} }
+
+    store.createEmptyTag(named: "keepEmpty")          // unrelated empty group
+    store.setMeta(path: "/a", info: "", tagNames: ["one"])
+    store.setMeta(path: "/b", info: "", tagNames: ["two"])
+    #expect(store.mergeTags(["one", "two"], into: "all", colorIndex: nil))
+    // The unrelated empty group survives the merge (GROUPS contract).
+    #expect(store.allTags().map(\.name) == ["all", "keepEmpty"])
+    #expect(store.paths(taggedWith: "all") == ["/a", "/b"])
+}
+
+@MainActor @Test func mergingEmptyTagsKeepsTheSurvivor() throws {
+    let (store, container) = try makeLibrary()
+    defer { withExtendedLifetime(container) {} }
+
+    store.createEmptyTag(named: "a")
+    store.createEmptyTag(named: "b")
+    #expect(store.mergeTags(["a", "b"], into: "a", colorIndex: nil))
+    // Sources are gone, the (still empty) survivor persists.
+    #expect(store.allTags().map(\.name) == ["a"])
+    #expect(store.paths(taggedWith: "a").isEmpty)
+}

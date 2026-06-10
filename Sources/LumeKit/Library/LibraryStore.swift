@@ -306,20 +306,23 @@ public final class LibraryStore {
 
     /// Merge several tags into one. Every file on a source tag is re-pointed onto
     /// `survivor` (de-duped), the chosen `colorIndex` (if any) is applied, and the
-    /// emptied source tags are pruned. Built on `renameTag` (which already merges
-    /// on a name clash) so the per-file de-dup logic lives in exactly one place.
+    /// source tags are removed by `renameTag` itself (its merge branch deletes the
+    /// merged-away source). Built on `renameTag` (which already merges on a name
+    /// clash) so the per-file de-dup logic lives in exactly one place.
     /// `survivor` need not pre-exist: the first matching source is renamed to it.
+    /// No pruning happens here: unrelated empty tags are untouched, and the
+    /// survivor persists even when the merge result has zero files (GROUPS
+    /// design, see `createEmptyTag`: empty groups are valid — no auto-prune).
     /// Returns true if the survivor exists after the operation.
     @discardableResult
     public func mergeTags(_ names: [String], into survivor: String, colorIndex: Int?) -> Bool {
         // Fold every other named tag onto the survivor. `renameTag` renames when
         // the survivor is absent and merges when it already exists, so iterating
-        // sources naturally creates-then-merges.
+        // sources naturally creates-then-merges — and deletes each source.
         for name in names where name != survivor {
             _ = renameTag(named: name, to: survivor)
         }
         if let colorIndex { recolorTag(named: survivor, colorIndex: colorIndex) }
-        pruneOrphanTags()
         return existingTag(named: survivor) != nil
     }
 
