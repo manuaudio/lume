@@ -2,25 +2,8 @@ import Testing
 import SwiftData
 @testable import LumeKit
 
-// NOTE: `makeStore()` returns the `ModelContainer` alongside the store, and each
-// test retains it for its whole body. `LibraryStore` only holds a `ModelContext`,
-// and on this toolchain (Apple Swift 6.3.2, macOS 26 SDK) a `ModelContext` whose
-// owning in-memory `ModelContainer` has been deallocated crashes with SIGTRAP on
-// the next SwiftData operation. In the real app the container is owned by the
-// SwiftUI `.modelContainer` scene for the app's lifetime, so this only affects
-// the test helper — hence the lifetime is pinned here rather than changing the
-// `LibraryStore(context:)` public API.
-@MainActor
-private func makeStore() throws -> (store: LibraryStore, container: ModelContainer) {
-    let container = try ModelContainer(
-        for: Favorite.self, Tag.self, FileMeta.self, Bookmark.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-    )
-    return (LibraryStore(context: container.mainContext), container)
-}
-
 @MainActor @Test func reorderBookmarksPersistsOrder() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.addBookmark(path: "/a")
@@ -33,7 +16,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func reorderFavoritesPersistsOrder() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.addFavorite(path: "/x.md", kind: .markdown)
@@ -45,7 +28,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func displayNameStoresAndClears() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     #expect(store.displayName(for: "/p/.env") == nil)
@@ -59,7 +42,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func bookmarksAreIndependentOfFavorites() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     #expect(store.isBookmarked(path: "/work") == false)
@@ -81,7 +64,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func favoriteFoldersAndIsFavorite() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     #expect(store.isFavorite(path: "/a") == false)
@@ -99,7 +82,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func addAndRemoveFavorite() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
     store.addFavorite(path: "/a/b.md", kind: .markdown)
     #expect(store.favorites().map(\.path) == ["/a/b.md"])
@@ -113,7 +96,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func setMetaUpsertsAndTagsAreReused() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
     store.setMeta(path: "/a/b.md", info: "draft", tagNames: ["work", "draft"])
     store.setMeta(path: "/a/c.md", info: "", tagNames: ["work"])
@@ -127,7 +110,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func setMetaReplacesTagsOnUpdate() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
     store.setMeta(path: "/a/b.md", info: "", tagNames: ["work"])
     store.setMeta(path: "/a/b.md", info: "updated", tagNames: ["personal"])
@@ -138,7 +121,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func migrateBookmarksBecomeFolderFavorites() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.addBookmark(path: "/work")
@@ -158,7 +141,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func migrateAssignsDistinctSortIndexes() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.addBookmark(path: "/a")
@@ -172,7 +155,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func pathsTaggedWithReturnsSet() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a/b.md", info: "", tagNames: ["work"])
@@ -184,7 +167,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func hideSetsFlagAndHiddenPathsReflectsIt() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     #expect(store.hiddenPaths().isEmpty)
@@ -200,7 +183,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func hidePreservesExistingMeta() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/p/c.txt", info: "note", tagNames: ["work"], displayName: "C")
@@ -216,7 +199,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 // MARK: - Tag / GROUP management (Increment 4)
 
 @MainActor @Test func createEmptyTagPersistsAndIsIdempotent() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.createEmptyTag(named: "Spec")
@@ -229,7 +212,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func removeTagFromFileKeepsEmptyGroup() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a.md", info: "", tagNames: ["solo"])
@@ -240,7 +223,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func renameTagWithoutClash() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a.md", info: "", tagNames: ["old"])
@@ -254,7 +237,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func renameTagMergesOnNameClash() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a.md", info: "", tagNames: ["src"])
@@ -265,7 +248,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func deleteTagDetachesFromFiles() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a.md", info: "", tagNames: ["gone", "keep"])
@@ -275,7 +258,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func recolorTagWrapsOutOfRange() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.createEmptyTag(named: "c")
@@ -287,7 +270,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func pruneOrphanTagsRemovesOnlyEmptyOnes() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.createEmptyTag(named: "empty")
@@ -297,7 +280,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func mergeTagsFoldsFilesAndAppliesColor() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a", info: "", tagNames: ["one"])
@@ -310,7 +293,7 @@ private func makeStore() throws -> (store: LibraryStore, container: ModelContain
 }
 
 @MainActor @Test func taggedWithAllAndAny() throws {
-    let (store, container) = try makeStore()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
 
     store.setMeta(path: "/a", info: "", tagNames: ["x", "y"])

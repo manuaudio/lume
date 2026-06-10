@@ -2,16 +2,8 @@ import Testing
 import SwiftData
 @testable import LumeKit
 
-@MainActor
-private func makeContainer() throws -> ModelContainer {
-    try ModelContainer(
-        for: Favorite.self, Tag.self, FileMeta.self, Bookmark.self, Scan.self, ContextBundle.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-    )
-}
-
 @MainActor @Test func bundleModelPersistsFields() throws {
-    let container = try makeContainer()
+    let (_, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
     let context = container.mainContext
 
@@ -26,9 +18,8 @@ private func makeContainer() throws -> ModelContainer {
 }
 
 @MainActor @Test func bundleCRUDViaStore() throws {
-    let container = try makeContainer()
+    let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
-    let store = LibraryStore(context: container.mainContext)
 
     let a = store.addBundle(name: "A", paths: ["/x/CLAUDE.md"])
     let b = store.addBundle(name: "B", paths: ["/y/.env"])
