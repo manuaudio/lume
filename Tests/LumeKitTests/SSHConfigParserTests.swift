@@ -41,9 +41,20 @@ struct SSHConfigParserTests {
         Include conf.d/work
         Host top
         """
+        // Included content is appended after the main text, so main-file hosts
+        // appear first regardless of where the Include line sits.
         let aliases = SSHConfigParser.aliases(configText: main) { path in
             path == "conf.d/work" ? "Host included1\nHost included2" : nil
         }
         #expect(aliases == ["top", "included1", "included2"])
+    }
+
+    @Test func equalsSignSyntax() {
+        #expect(SSHConfigParser.aliases(in: "Host=eq1") == ["eq1"])
+        let main = "Include=conf.d/work\nHost top"
+        let aliases = SSHConfigParser.aliases(configText: main) { path in
+            path == "conf.d/work" ? "Host inc1" : nil
+        }
+        #expect(aliases == ["top", "inc1"])
     }
 }
