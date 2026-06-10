@@ -3,6 +3,16 @@ import Foundation
 /// Parses OpenSSH `sftp` batch output: long `ls -la` listings and `pwd`.
 /// Batch mode echoes each command as an "sftp> …" line — those, `total`
 /// headers, and `.`/`..` are noise and skipped.
+///
+/// **Format contract.** The long-listing text is the SFTP protocol's
+/// server-generated `longname` field. OpenSSH's sftp-server emits a stable
+/// ls-style format — exactly 9 space-separated fields with the timestamp as
+/// either "Mon DD HH:MM" or "Mon DD  YYYY" — regardless of the remote shell's
+/// locale or `LANG` settings. Non-OpenSSH servers (BusyBox/Dropbear-adjacent,
+/// proprietary SFTP implementations) may emit variants such as ISO-style dates
+/// (producing 8 fields) or timestamps with seconds (producing 10 fields) that
+/// this parser does not recognise; those entries are silently dropped. This is
+/// a known MVP limitation.
 public enum SFTPListingParser {
     public struct Entry: Equatable, Sendable {
         public let name: String
@@ -29,6 +39,7 @@ public enum SFTPListingParser {
     /// Fields 0–7 are fixed; everything after field 7 is the (spaceable) name.
     static func parseLine(_ line: String) -> Entry? {
         let fields = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true)
+        // "sftp> …" command echoes and "total N" headers fail this field-count guard.
         guard fields.count == 9 else { return nil }
         var perms = fields[0]
         // macOS ls appends '@' (xattrs) or '+' (ACLs) to the mode column.
@@ -59,6 +70,7 @@ public enum SFTPListingParser {
     /// execute — close enough for a writability hint.
     static func parseMode(_ rwx: Substring) -> UInt16? {
         guard rwx.count == 9 else { return nil }
+        // i=0 → owner-read (0o400) … i=8 → other-execute (0o001).
         var mode: UInt16 = 0
         for (i, char) in rwx.enumerated() {
             if char == "-" || char == "S" || char == "T" { continue }

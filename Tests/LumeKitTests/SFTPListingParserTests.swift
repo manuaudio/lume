@@ -46,6 +46,13 @@ struct SFTPListingParserTests {
         #expect(entries.first?.mode == 0o644)
     }
 
+    @Test func symlinkToDirectoryIsALeaf() {
+        // Common on modern Linux roots: /bin -> usr/bin. Stays a leaf (never expandable).
+        let output = "lrwxrwxrwx    1 root     wheel           7 Jun  9 10:00 bin -> usr/bin"
+        let entries = SFTPListingParser.parse(output)
+        #expect(entries == [.init(name: "bin", isDirectory: false, isSymlink: true, size: 7, mode: 0o777)])
+    }
+
     @Test func parsesPwdOutput() {
         let output = "sftp> pwd\nRemote working directory: /home/manu\n"
         #expect(SFTPListingParser.workingDirectory(in: output) == "/home/manu")
