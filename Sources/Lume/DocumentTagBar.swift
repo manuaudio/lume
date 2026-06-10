@@ -21,6 +21,7 @@ struct DocumentTagBar: View {
             .buttonStyle(.borderless)
             .popover(isPresented: $adding, arrowEdge: .bottom) {
                 AddTagPopover(url: url)
+                    .id(url)   // reset popover state when the selection changes
             }
             Spacer()
             Button { showingNotes = true } label: {
@@ -31,6 +32,7 @@ struct DocumentTagBar: View {
             .help("Notes for this file")
             .popover(isPresented: $showingNotes, arrowEdge: .bottom) {
                 NotesPopover(url: url)
+                    .id(url)   // a selection change replaces (saves + reloads) the popover
             }
         }
         .padding(.horizontal, 12)
@@ -38,12 +40,15 @@ struct DocumentTagBar: View {
     }
 }
 
-/// Free-text notes (FileMeta.info) for a file. Saved when the popover closes.
+/// Free-text notes (FileMeta.info) for a file. Saved when the popover closes —
+/// against the URL the notes were LOADED from, never whatever is selected at
+/// dismissal (changing selection with the popover open must not cross-write
+/// file A's notes onto file B).
 private struct NotesPopover: View {
     let url: URL
     @Environment(AppState.self) private var app
     @State private var text = ""
-    @State private var loaded = false
+    @State private var loadedURL: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -55,9 +60,14 @@ private struct NotesPopover: View {
         }
         .padding(12)
         .onAppear {
-            if !loaded { text = app.info(forPath: url.path); loaded = true }
+            if loadedURL == nil {
+                text = app.info(forPath: url.path)
+                loadedURL = url
+            }
         }
-        .onDisappear { app.setInfo(text, forPath: url.path) }
+        .onDisappear {
+            if let loadedURL { app.setInfo(text, forPath: loadedURL.path) }
+        }
     }
 }
 
