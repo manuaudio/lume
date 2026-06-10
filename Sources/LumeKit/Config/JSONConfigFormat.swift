@@ -87,6 +87,10 @@ public enum JSONConfigFormat: ConfigFormat {
 private struct JSONParser {
     private let scalars: [Character]
     private var i = 0
+    private var depth = 0
+    /// Deeper nesting than any sane config file; prevents a stack overflow on
+    /// adversarial input (the parser recurses once per nesting level).
+    private static let maxDepth = 256
 
     init(_ text: String) { scalars = Array(text) }
 
@@ -103,6 +107,11 @@ private struct JSONParser {
     private mutating func parseValue() throws -> ConfigValue {
         skipWhitespace()
         guard let c = peek() else { throw ConfigParseError("unexpected end of input") }
+        depth += 1
+        defer { depth -= 1 }
+        guard depth <= Self.maxDepth else {
+            throw ConfigParseError("nesting exceeds \(Self.maxDepth) levels")
+        }
         switch c {
         case "{": return try parseObject()
         case "[": return try parseArray()
@@ -181,13 +190,39 @@ private struct JSONParser {
     }
 
     private mutating func parseUnicodeEscape() throws -> Character {
+        let first = try parseHexCodeUnit()
+        // High surrogate: must be immediately followed by an escaped low
+        // surrogate (\uDC00–\uDFFF); the pair combines into one scalar.
+        if (0xD800...0xDBFF).contains(first) {
+            guard i + 1 < scalars.count, scalars[i] == "\\", scalars[i + 1] == "u" else {
+                throw ConfigParseError("unpaired high surrogate \\u\(String(format: "%04X", first))")
+            }
+            i += 2 // consume \u
+            let second = try parseHexCodeUnit()
+            guard (0xDC00...0xDFFF).contains(second) else {
+                throw ConfigParseError("expected low surrogate, got \\u\(String(format: "%04X", second))")
+            }
+            let code = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00)
+            guard let scalar = Unicode.Scalar(code) else {
+                throw ConfigParseError("invalid surrogate pair")
+            }
+            return Character(scalar)
+        }
+        // A lone low surrogate is never a valid scalar.
+        guard !(0xDC00...0xDFFF).contains(first), let scalar = Unicode.Scalar(first) else {
+            throw ConfigParseError("unpaired low surrogate \\u\(String(format: "%04X", first))")
+        }
+        return Character(scalar)
+    }
+
+    private mutating func parseHexCodeUnit() throws -> UInt32 {
         guard i + 4 <= scalars.count else { throw ConfigParseError("short \\u escape") }
         let hex = String(scalars[i..<i + 4])
-        guard let code = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(code) else {
+        guard let code = UInt32(hex, radix: 16) else {
             throw ConfigParseError("invalid \\u escape \(hex)")
         }
         i += 4
-        return Character(scalar)
+        return code
     }
 
     private mutating func parseBool() throws -> Bool {
@@ -199,7 +234,42 @@ private struct JSONParser {
         let start = i
         while let c = peek(), "0123456789+-.eE".contains(c) { i += 1 }
         guard i > start else { throw ConfigParseError("invalid number at \(start)") }
-        return String(scalars[start..<i])
+        let lexeme = String(scalars[start..<i])
+        guard Self.isValidJSONNumber(lexeme) else {
+            throw ConfigParseError("invalid number '\(lexeme)' at \(start)")
+        }
+        return lexeme
+    }
+
+    /// Strict JSON number grammar: `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
+    /// The greedy charset scan above accepts lexemes like `1.2.3` or `--1`;
+    /// rejecting them here keeps serialized output valid JSON.
+    private static func isValidJSONNumber(_ s: String) -> Bool {
+        var rest = Substring(s)
+        func digit() -> Bool {
+            guard let c = rest.first, c.isASCII, c.isNumber else { return false }
+            rest.removeFirst()
+            return true
+        }
+        if rest.first == "-" { rest.removeFirst() }
+        // Integer part: 0, or a non-zero digit followed by more digits.
+        guard let lead = rest.first else { return false }
+        guard digit() else { return false }
+        if lead != "0" { while digit() {} }
+        // Optional fraction: '.' then 1+ digits.
+        if rest.first == "." {
+            rest.removeFirst()
+            guard digit() else { return false }
+            while digit() {}
+        }
+        // Optional exponent: e/E, optional sign, then 1+ digits.
+        if rest.first == "e" || rest.first == "E" {
+            rest.removeFirst()
+            if rest.first == "+" || rest.first == "-" { rest.removeFirst() }
+            guard digit() else { return false }
+            while digit() {}
+        }
+        return rest.isEmpty
     }
 
     private mutating func parseLiteral(_ literal: String) throws {

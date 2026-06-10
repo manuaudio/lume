@@ -60,4 +60,64 @@ import Testing
             ConfigEntry(key: "b", value: .string("aGVsbG8=")),
         ]))
     }
+
+    @Test func parsesSurrogatePairEscapes() throws {
+        // Fails before the fix: U+1F600 escapes as 😀 (what
+        // JSONSerialization emits for emoji) and the parser threw on the
+        // high surrogate.
+        let value = try JSONConfigFormat.parse(#"{"emoji": "\uD83D\uDE00"}"#)
+        guard case let .object(entries) = value else {
+            Issue.record("expected object, got \(value)")
+            return
+        }
+        #expect(entries[0].value == .string("😀"))
+        // And the parsed value survives a serialize → parse cycle.
+        let out = try JSONConfigFormat.serialize(value)
+        #expect(try JSONConfigFormat.parse(out) == value)
+    }
+
+    @Test func throwsOnLoneOrMalformedSurrogates() {
+        // Lone high surrogate at end of string.
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(#""\uD83D""#) }
+        // Lone low surrogate.
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(#""\uDE00""#) }
+        // High surrogate followed by a plain character.
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(#""\uD83Dx""#) }
+        // High surrogate followed by a non-\u escape.
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(#""\uD83D\n""#) }
+        // High surrogate followed by another high surrogate.
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(#""\uD83D\uD83D""#) }
+    }
+
+    @Test func bmpEscapesStillParse() throws {
+        #expect(try JSONConfigFormat.parse(#""é""#) == .string("é"))
+    }
+
+    @Test func rejectsGarbageNumberLexemes() {
+        // Fails before the fix: the charset scan accepted these and serialize
+        // would emit invalid JSON.
+        for bad in ["1.2.3", "+1", "01", ".5", "1.", "1e", "1e+", "--1", "0x10", "1e5e5", "-"] {
+            #expect(throws: ConfigParseError.self) {
+                try JSONConfigFormat.parse(bad)
+            }
+        }
+    }
+
+    @Test func acceptsValidNumberLexemesUnchanged() throws {
+        #expect(try JSONConfigFormat.parse("0") == .number("0"))
+        #expect(try JSONConfigFormat.parse("123") == .number("123"))
+        #expect(try JSONConfigFormat.parse("0.1") == .number("0.1"))
+        #expect(try JSONConfigFormat.parse("-0.5e+10") == .number("-0.5e+10"))
+    }
+
+    @Test func throwsInsteadOfCrashingOnDeepNesting() {
+        // Fails (by crashing) before the fix: 10k nested arrays overflow the stack.
+        let deep = String(repeating: "[", count: 10_000) + String(repeating: "]", count: 10_000)
+        #expect(throws: ConfigParseError.self) { try JSONConfigFormat.parse(deep) }
+    }
+
+    @Test func allowsReasonableNestingDepth() throws {
+        let ok = String(repeating: "[", count: 200) + String(repeating: "]", count: 200)
+        #expect(throws: Never.self) { try JSONConfigFormat.parse(ok) }
+    }
 }
