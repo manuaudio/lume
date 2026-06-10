@@ -48,7 +48,7 @@ public enum SecretDetector {
 
     // MARK: - Content heuristics
 
-    /// Why a piece of content was flagged; `label` drives the warning copy.
+    /// Why a piece of content was flagged; `label` is available for warning copy.
     public enum ContentMatch: String, CaseIterable, Sendable {
         case awsAccessKeyID = "an AWS access key ID"
         case privateKeyBlock = "a private key block"

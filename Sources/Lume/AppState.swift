@@ -232,10 +232,16 @@ final class AppState {
     // MARK: - Library wiring
 
     /// Connect the SwiftData-backed library (called once the container is ready).
-    func attach(library: LibraryStore, storeHealth: StoreHealth = .healthy) {
+    func attach(library: LibraryStore) {
         self.library = library
         library.migrateBookmarksToFavorites()
         refreshLibrary()
+    }
+
+    /// Surface a degraded store-health banner. Called by LumeApp AFTER launch
+    /// folder restore — `openFolder()` clears notices, so showing this inside
+    /// `attach` would get dismissed before the user ever saw it.
+    func surfaceStoreHealth(_ storeHealth: StoreHealth) {
         switch storeHealth {
         case .healthy:
             break

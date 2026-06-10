@@ -7,7 +7,8 @@ import LumeKit
 struct LumeApp: App {
     @State private var app = AppState()
     private let container: ModelContainer
-    /// How store setup went; handed to AppState so degraded modes get a banner.
+    /// How store setup went; surfaced as a banner after launch folder restore
+    /// (restore calls `openFolder`, which clears notices).
     private let storeHealth: StoreHealth
 
     init() {
@@ -28,9 +29,9 @@ struct LumeApp: App {
                     // re-restore the last folder, nuking the existing window's
                     // navigation/selection state.
                     guard app.library == nil else { return }
-                    app.attach(library: LibraryStore(context: container.mainContext),
-                               storeHealth: storeHealth)
+                    app.attach(library: LibraryStore(context: container.mainContext))
                     if !app.applyLaunchEnvironment() { app.restoreLastFolder() }
+                    app.surfaceStoreHealth(storeHealth)
                 }
         }
         .defaultSize(width: 1100, height: 720)
