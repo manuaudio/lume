@@ -46,16 +46,44 @@ private final class ProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
     private var timedOut = false
+    // Fix 1: set to true when termination is requested before p.run() completes.
+    private var wantsTermination = false
 
     func terminate() {
         lock.lock(); defer { lock.unlock() }
-        process?.terminate()
+        // Fix 1: only call terminate() on an already-launched process; otherwise
+        // flag it so launchAndWait can terminate immediately after p.run().
+        if process?.isRunning == true {
+            process?.terminate()
+        } else {
+            wantsTermination = true
+        }
     }
 
     private func markTimedOutAndTerminate() {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         timedOut = true
-        process?.terminate()
+        // Fix 1: same guard as terminate().
+        if process?.isRunning == true {
+            process?.terminate()
+            let pid = process?.processIdentifier ?? 0
+            lock.unlock()
+            // Fix 2: escalate to SIGKILL ~2 s later in case the child ignores SIGTERM.
+            if pid > 0 {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock()
+                    let stillRunning = self.process?.isRunning == true
+                    self.lock.unlock()
+                    if stillRunning {
+                        kill(pid, SIGKILL)
+                    }
+                }
+            }
+        } else {
+            wantsTermination = true
+            lock.unlock()
+        }
     }
 
     func launchAndWait(executable: String, arguments: [String], stdin: Data?,
@@ -75,6 +103,13 @@ private final class ProcessBox: @unchecked Sendable {
         lock.lock(); process = p; lock.unlock()
         try p.run()
 
+        // Fix 1: if terminate()/markTimedOutAndTerminate() fired between
+        // `process = p` and `p.run()`, honour the deferred request now.
+        lock.lock()
+        let shouldTerminateNow = wantsTermination
+        lock.unlock()
+        if shouldTerminateNow { p.terminate() }
+
         if let stdin { try? inPipe.fileHandleForWriting.write(contentsOf: stdin) }
         try? inPipe.fileHandleForWriting.close()
 
@@ -91,6 +126,8 @@ private final class ProcessBox: @unchecked Sendable {
             stderrDone.signal()
         }
         let stdout = (try? outPipe.fileHandleForReading.readToEnd()) ?? Data()
+        // NOTE: blocking wait is safe ONLY because launchAndWait runs inside
+        // Task.detached (a dedicated thread), never on the cooperative pool.
         stderrDone.wait()
         p.waitUntilExit()
         watchdog.cancel()

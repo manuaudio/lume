@@ -25,7 +25,7 @@ struct ProcessRunnerTests {
     @Test func timesOutAndThrows() async {
         await #expect(throws: SSHError.timeout(executable: "/bin/sleep")) {
             _ = try await ProcessRunner().run(
-                "/bin/sleep", ["5"], stdin: nil, environment: nil, timeout: 0.3)
+                "/bin/sleep", ["60"], stdin: nil, environment: nil, timeout: 1.0)
         }
     }
 }
