@@ -1,17 +1,60 @@
 import Foundation
+import Observation
 import SwiftData
+import os
+
+/// A persistence save failure, surfaced for the app layer to banner.
+/// `LibraryStore` publishes the most recent one via `lastPersistenceError`.
+public struct PersistenceFailure: Equatable, Sendable {
+    /// The `LibraryStore` operation that failed, e.g. "addFavorite".
+    public let operation: String
+    /// `localizedDescription` of the underlying SwiftData error.
+    public let message: String
+    public let date: Date
+
+    public init(operation: String, message: String, date: Date = .now) {
+        self.operation = operation
+        self.message = message
+        self.date = date
+    }
+}
 
 @MainActor
+@Observable
 public final class LibraryStore {
     private let context: ModelContext
+    private let logger = Logger(subsystem: "com.lume.LumeKit", category: "LibraryStore")
+
+    /// The most recent save failure, or nil. The app layer observes this and
+    /// shows a non-fatal banner; `clearPersistenceError()` dismisses it. Only
+    /// the LATEST failure is kept — the banner is a "your library may not be
+    /// persisting" signal, not an error log (the log is in os.Logger).
+    public private(set) var lastPersistenceError: PersistenceFailure?
+
     public init(context: ModelContext) { self.context = context }
+
+    public func clearPersistenceError() { lastPersistenceError = nil }
+
+    /// Single save funnel: every mutation goes through here so failures are
+    /// logged and surfaced instead of silently dropped (audit A2).
+    @discardableResult
+    private func save(_ operation: String) -> Bool {
+        do {
+            try context.save()
+            return true
+        } catch {
+            logger.error("\(operation, privacy: .public) failed to save: \(error.localizedDescription, privacy: .public)")
+            lastPersistenceError = PersistenceFailure(operation: operation, message: error.localizedDescription)
+            return false
+        }
+    }
 
     // MARK: Favorites
 
     public func addFavorite(path: String, kind: FileKind) {
         if favorite(for: path) != nil { return }
         context.insert(Favorite(path: path, kindRaw: String(describing: kind), sortIndex: favorites().count))
-        try? context.save()
+        save("addFavorite")
     }
 
     /// Favorite a directory. Folders aren't a `FileKind`, so we persist a
@@ -19,7 +62,7 @@ public final class LibraryStore {
     public func addFavoriteFolder(path: String) {
         if favorite(for: path) != nil { return }
         context.insert(Favorite(path: path, kindRaw: "folder", sortIndex: favorites().count))
-        try? context.save()
+        save("addFavoriteFolder")
     }
 
     /// Persist a new ordering for favorites (drag-to-reorder).
@@ -27,7 +70,7 @@ public final class LibraryStore {
         for (i, p) in orderedPaths.enumerated() {
             favorite(for: p)?.sortIndex = i
         }
-        try? context.save()
+        save("reorderFavorites")
     }
 
     public func isFavorite(path: String) -> Bool {
@@ -35,7 +78,7 @@ public final class LibraryStore {
     }
 
     public func removeFavorite(path: String) {
-        if let fav = favorite(for: path) { context.delete(fav) ; try? context.save() }
+        if let fav = favorite(for: path) { context.delete(fav); save("removeFavorite") }
     }
 
     public func favorites() -> [Favorite] {
@@ -75,7 +118,7 @@ public final class LibraryStore {
             }
             context.delete(bm)
         }
-        try? context.save()
+        save("migrateBookmarksToFavorites")
         return created
     }
 
@@ -96,7 +139,7 @@ public final class LibraryStore {
         var seen = Set<String>()
         let uniqueNames = tagNames.filter { seen.insert($0).inserted }
         meta.tags = uniqueNames.map { tag(named: $0) }
-        try? context.save()
+        save("setMeta")
     }
 
     public func meta(for path: String) -> FileMeta? {
@@ -117,7 +160,7 @@ public final class LibraryStore {
             }()
             meta.hidden = hidden
         }
-        try? context.save()
+        save("setHidden")
     }
 
     /// All paths currently marked hidden.
@@ -190,7 +233,7 @@ public final class LibraryStore {
     public func recolorTag(named name: String, colorIndex: Int) {
         guard let t = existingTag(named: name) else { return }
         t.colorIndex = TagPalette.wrap(colorIndex)
-        try? context.save()
+        save("recolorTag")
     }
 
     /// Create a brand-new, EMPTY tag (a GROUP with no files yet). Trims the name,
@@ -202,7 +245,7 @@ public final class LibraryStore {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, existingTag(named: name) == nil else { return }
         context.insert(Tag(name: name, colorIndex: nextColorIndex()))
-        try? context.save()
+        save("createEmptyTag")
     }
 
     /// Remove ONE tag from ONE file (the GROUPS "Remove from {group}" action). The
@@ -211,7 +254,7 @@ public final class LibraryStore {
     public func removeTag(named name: String, fromPath path: String) {
         guard let meta = meta(for: path) else { return }
         meta.tags.removeAll { $0.name == name }
-        try? context.save()
+        save("removeTag")
     }
 
     /// Delete a tag outright: detach it from every file it tags, then remove it.
@@ -221,7 +264,7 @@ public final class LibraryStore {
             file.tags.removeAll { $0.name == name }
         }
         context.delete(t)
-        try? context.save()
+        save("deleteTag")
     }
 
     /// Delete every tag no file references. This is the fix for "you can't remove
@@ -231,7 +274,7 @@ public final class LibraryStore {
     public func pruneOrphanTags() -> Int {
         let orphans = allTags().filter { $0.files.isEmpty }
         for t in orphans { context.delete(t) }
-        if !orphans.isEmpty { try? context.save() }
+        if !orphans.isEmpty { save("pruneOrphanTags") }
         return orphans.count
     }
 
@@ -257,7 +300,7 @@ public final class LibraryStore {
         } else {
             source.name = newName
         }
-        try? context.save()
+        save("renameTag")
         return true
     }
 
@@ -300,7 +343,7 @@ public final class LibraryStore {
     public func addScan(name: String, patterns: [String], roots: [String]) -> Scan {
         let scan = Scan(name: name, patterns: patterns, roots: roots, sortIndex: scans().count)
         context.insert(scan)
-        try? context.save()
+        save("addScan")
         return scan
     }
 
@@ -314,17 +357,17 @@ public final class LibraryStore {
         scan.name = name
         scan.patterns = patterns
         scan.roots = roots
-        try? context.save()
+        save("updateScan")
     }
 
     public func removeScan(_ scan: Scan) {
         context.delete(scan)
-        try? context.save()
+        save("removeScan")
     }
 
     public func setCanonical(_ path: String?, for scan: Scan) {
         scan.canonicalPath = path
-        try? context.save()
+        save("setCanonical")
     }
 
     // MARK: - Bundles
@@ -333,7 +376,7 @@ public final class LibraryStore {
     public func addBundle(name: String, paths: [String]) -> ContextBundle {
         let bundle = ContextBundle(name: name, paths: paths, sortIndex: bundles().count)
         context.insert(bundle)
-        try? context.save()
+        save("addBundle")
         return bundle
     }
 
@@ -345,16 +388,16 @@ public final class LibraryStore {
 
     public func renameBundle(_ bundle: ContextBundle, to name: String) {
         bundle.name = name
-        try? context.save()
+        save("renameBundle")
     }
 
     public func setBundlePaths(_ paths: [String], for bundle: ContextBundle) {
         bundle.paths = paths
-        try? context.save()
+        save("setBundlePaths")
     }
 
     public func removeBundle(_ bundle: ContextBundle) {
         context.delete(bundle)
-        try? context.save()
+        save("removeBundle")
     }
 }

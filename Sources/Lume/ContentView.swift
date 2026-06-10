@@ -11,7 +11,12 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             DetailView()
-                .overlay(alignment: .top) { NoticeBanner() }
+                .overlay(alignment: .top) {
+                    VStack(spacing: 6) {
+                        NoticeBanner()
+                        PersistenceErrorBanner()
+                    }
+                }
                 .animation(.easeOut(duration: 0.2), value: app.notice)
         }
         .modifier(ModifierPeekMonitor())
@@ -44,6 +49,37 @@ private struct NoticeBanner: View {
                     .lineLimit(3)
                     .truncationMode(.middle)
                 Button { app.dismissNotice() } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary, lineWidth: 1))
+            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+            .padding(.top, 10)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+/// Non-fatal "your library may not be persisting" banner, fed by
+/// `LibraryStore.lastPersistenceError` (set by the save funnel).
+private struct PersistenceErrorBanner: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        if let failure = app.library?.lastPersistenceError {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.yellow)
+                Text("Your library couldn't save (\(failure.operation)): changes may not persist.")
+                    .font(.callout)
+                    .lineLimit(2)
+                Button { app.library?.clearPersistenceError() } label: {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
