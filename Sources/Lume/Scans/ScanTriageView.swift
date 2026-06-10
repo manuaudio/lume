@@ -185,26 +185,28 @@ struct ScanTriageView: View {
 
     private func loadSizes(_ urls: [URL]) async {
         let paths = urls.map(\.path)
-        let computed = await Task.detached(priority: .utility) { () -> [String: Int] in
+        let computed = await detachedValue(priority: .utility) { () -> [String: Int] in
             var out: [String: Int] = [:]
             for p in paths {
                 if let t = TokenEstimator.estimateFile(URL(fileURLWithPath: p)) { out[p] = t }
             }
             return out
-        }.value
+        }
+        guard let computed else { return } // cancelled: a newer scan-results task owns `sizes`
         sizes = computed
     }
 
     private func loadPreview(_ url: URL?) async {
         guard let url else { preview = ""; return }
-        let text = await Task.detached(priority: .userInitiated) { () -> String in
+        let text = await detachedValue(priority: .userInitiated) { () -> String in
             guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
                 return "(binary or unreadable file — open in Finder to inspect)"
             }
             if raw.isEmpty { return "(empty file)" }
             let cap = 50_000
             return raw.count > cap ? String(raw.prefix(cap)) + "\n\n… (truncated)" : raw
-        }.value
+        }
+        guard let text else { return } // cancelled: a newer focus owns `preview`
         preview = text
     }
 }

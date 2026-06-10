@@ -108,19 +108,22 @@ struct BundleView: View {
     private func recomputeEstimate() async {
         let urls = existingURLs
         let fmt = app.contextFormat
-        tokenEstimate = await Task.detached {
+        let estimate = await detachedValue {
             ContextAssembler.assemble(urls, format: fmt).tokenEstimate
-        }.value
+        }
+        guard let estimate else { return } // cancelled: a newer estimateKey task owns this
+        tokenEstimate = estimate
     }
 
     private func loadSizes(_ paths: [String]) async {
-        let computed = await Task.detached(priority: .utility) { () -> [String: Int] in
+        let computed = await detachedValue(priority: .utility) { () -> [String: Int] in
             var out: [String: Int] = [:]
             for p in paths {
                 if let t = TokenEstimator.estimateFile(URL(fileURLWithPath: p)) { out[p] = t }
             }
             return out
-        }.value
+        }
+        guard let computed else { return } // cancelled: a newer path set owns `sizes`
         sizes = computed
     }
 }

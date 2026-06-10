@@ -73,12 +73,13 @@ struct DiffView: View {
 
     private func load() async {
         let c = canonical, t = target
-        let computed = await Task.detached(priority: .userInitiated) { () -> [DiffLine]? in
+        let result = await detachedValue(priority: .userInitiated) { () -> [DiffLine]? in
             guard let canonText = try? String(contentsOf: c, encoding: .utf8),
                   let targetText = try? String(contentsOf: t, encoding: .utf8) else { return nil }
             return LineDiff.compute(from: targetText, to: canonText)
-        }.value
-        if let computed { lines = computed; unreadable = false }
+        }
+        guard let result else { return } // cancelled: a newer canonical/target pair owns `lines`
+        if let computed = result { lines = computed; unreadable = false }
         else { lines = []; unreadable = true }
     }
 }
