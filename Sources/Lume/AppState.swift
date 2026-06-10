@@ -1486,6 +1486,10 @@ final class AppState {
         loadedText = nil
         isDirty = false
         errorMessage = nil
+        // Also drop sidebar row selection: otherwise destructive shortcuts
+        // (⌘⌫ trash, ⌘D, rename) would still resolve stale LOCAL rows while
+        // the remote tree is showing.
+        clearSelection()
     }
 
     // MARK: - Remote source (SSH) — open / save
