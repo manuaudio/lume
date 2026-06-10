@@ -27,9 +27,10 @@ public struct FileService: FileServicing {
 
     public func enumerate(_ directory: URL, includeHidden: Bool) throws -> [FileNode] {
         let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         let entries = try fm.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: keys,
             options: [.skipsSubdirectoryDescendants]
         )
         let nodes: [FileNode] = entries.compactMap { url in
@@ -38,8 +39,13 @@ public struct FileService: FileServicing {
             // Hide dotfiles unless "Show hidden" is on. `.env*` stays visible
             // either way (it's a curated config, not noise).
             if !includeHidden, name.hasPrefix("."), name != ".env", !name.hasPrefix(".env.") { return nil }
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            return FileNode(url: url, isDirectory: isDir, children: nil)
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let isSymlink = values?.isSymbolicLink ?? false
+            // Symlinks are listed but NEVER treated as directories (matching
+            // ScanEngine's symlink skip): reporting them as leaves means the
+            // sidebar can't expand into a target outside the opened tree.
+            let isDir = !isSymlink && (values?.isDirectory ?? false)
+            return FileNode(url: url, isDirectory: isDir, isSymlink: isSymlink, children: nil)
         }
         return nodes.sorted { a, b in
             if a.isDirectory != b.isDirectory { return a.isDirectory } // folders first
