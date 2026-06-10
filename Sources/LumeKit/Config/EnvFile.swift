@@ -21,8 +21,10 @@ public enum EnvFile {
     private static let maxMaskDots = 24
 
     /// Parse `.env` text into ordered lines, preserving comments and blanks.
+    /// Splits on any newline grapheme (`\n`, `\r\n`, `\r`) so CRLF files don't
+    /// leak a trailing `\r` into values or defeat quote-stripping.
     public static func parse(_ text: String) -> [EnvLine] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map { rawSub in
+        text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map { rawSub in
             let raw = String(rawSub)
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { return .blank }
