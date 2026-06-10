@@ -310,15 +310,37 @@ final class AppState {
         watcher = DirectoryWatcher(root: root) { [weak self] changed in
             guard let self else { return }
             for path in changed { self.cache.invalidate(path: path) }
+            self.recordActivity(for: changed)
+            // Re-read the SwiftData projections only when a changed path is one
+            // the library actually tracks; for untracked churn (e.g. a `git
+            // checkout` under the root) the invalidation above is enough —
+            // browser rows already re-read via `cache.revision`.
+            let affectsLibrary = LibraryChangeFilter.affectsLibrary(
+                changed: changed,
+                favoritePaths: self.favorites.map(\.path),
+                hiddenPaths: self.hiddenPaths,
+                groupFilePaths: self.groupFilePaths
+            )
+            if affectsLibrary { self.refreshLibrary() }
+        }
+    }
+
+    /// Record changed regular files into the activity log. The per-path `stat`
+    /// runs off the main actor so a large burst can't stall the UI.
+    private func recordActivity(for changed: Set<String>) {
+        let candidates = changed.filter { !ActivityLog.isIgnored($0) }
+        guard !candidates.isEmpty else { return }
+        let stamp = Date()
+        Task { [weak self] in
             // Sort for deterministic within-burst order (Set iteration is unordered;
             // entries share a timestamp so the order is cosmetic but should be stable).
-            let recordable = changed.filter { !ActivityLog.isIgnored($0) && self.isRegularFile($0) }.sorted()
-            if !recordable.isEmpty {
-                var log = self.activity
-                log.record(recordable, at: Date())
-                self.activity = log
-            }
-            self.refreshLibrary()
+            let recordable = await Task.detached(priority: .utility) {
+                candidates.filter { Self.isRegularFile($0) }.sorted()
+            }.value
+            guard let self, !recordable.isEmpty else { return }
+            var log = self.activity
+            log.record(recordable, at: stamp)
+            self.activity = log
         }
     }
 
@@ -862,9 +884,9 @@ final class AppState {
     private let fm = FileManager.default
 
     /// True if `path` is an existing regular file (not a directory).
-    private func isRegularFile(_ path: String) -> Bool {
+    private nonisolated static func isRegularFile(_ path: String) -> Bool {
         var isDir: ObjCBool = false
-        return fm.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
     }
 
     /// Copy the selected files' POSIX paths to the clipboard (⌥⌘C).
