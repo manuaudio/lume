@@ -21,15 +21,12 @@ struct LumeCommands: Commands {
                 .disabled(app.browseURL == nil)
         }
 
-        // Edit — Undo/Redo route through the file-ops UndoManager.
-        CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { app.undoManager.undo() }
-                .keyboardShortcut("z", modifiers: .command)
-                .disabled(!app.undoManager.canUndo)
-            Button("Redo") { app.undoManager.redo() }
-                .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(!app.undoManager.canRedo)
-        }
+        // Edit — Undo/Redo intentionally NOT replaced. The default items resolve
+        // `undo:`/`redo:` through the responder chain: a focused text view gets
+        // typing undo (its own manager — see EditorView.Coordinator), everything
+        // else reaches the window's undo manager, where file ops register (see
+        // ContentView / AppState.attachUndoManager). AppKit re-validates the
+        // items on every menu open, so enablement can't go stale.
         CommandGroup(after: .pasteboard) {
             Button("Copy Paths") { app.copySelectedPaths() }
                 .keyboardShortcut("c", modifiers: [.option, .command])

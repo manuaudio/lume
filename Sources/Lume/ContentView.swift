@@ -4,6 +4,7 @@ import LumeKit
 
 struct ContentView: View {
     @Environment(AppState.self) private var app
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         NavigationSplitView {
@@ -20,6 +21,11 @@ struct ContentView: View {
                 .animation(.easeOut(duration: 0.2), value: app.notice)
         }
         .modifier(ModifierPeekMonitor())
+        // Route file-ops undo through the window's undo manager so the default
+        // Edit ▸ Undo/Redo items (responder-chain based) can reach it.
+        .onChange(of: undoManager, initial: true) { _, manager in
+            app.attachUndoManager(manager)
+        }
         .confirmationDialog(
             "This selection looks like it includes secrets (a sensitive filename, or credential-shaped content). Copy anyway?",
             isPresented: Binding(

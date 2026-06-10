@@ -50,6 +50,7 @@ struct EditorView: NSViewRepresentable {
         // not on every keystroke — preserves cursor + undo.
         if textView.string != incoming {
             textView.string = incoming
+            context.coordinator.clearUndoHistory()
             context.coordinator.highlight(textView)
             // Open a freshly-selected document ready to type — no extra click needed.
             DispatchQueue.main.async { [weak textView] in
@@ -64,8 +65,18 @@ struct EditorView: NSViewRepresentable {
         let app: AppState
         weak var textView: NSTextView?
         private var highlightWorkItem: DispatchWorkItem?
+        /// Dedicated undo stack for typing. Without it, NSTextView falls back to
+        /// the window's undo manager — the file-ops stack — and ⌘Z mid-typing
+        /// could re-trash a file instead of undoing keystrokes.
+        private let textUndoManager = UndoManager()
 
         init(app: AppState) { self.app = app }
+
+        /// NSTextView asks its delegate for an undo manager (`allowsUndo`).
+        func undoManager(for view: NSTextView) -> UndoManager? { textUndoManager }
+
+        /// Drop typing history when the model replaces the document (file switch).
+        func clearUndoHistory() { textUndoManager.removeAllActions() }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }

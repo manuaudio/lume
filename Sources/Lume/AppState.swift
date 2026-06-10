@@ -81,8 +81,15 @@ final class AppState {
     private(set) var expandedFavorites: Set<String> = []
     /// Accumulates type-ahead characters; reset after a short idle by the view.
     var typeaheadBuffer = ""
-    /// The undo manager backing file operations (⌘Z).
-    let undoManager = UndoManager()
+    /// The undo manager backing file operations (⌘Z): the window's undo manager,
+    /// attached from ContentView, so the standard Edit ▸ Undo/Redo items reach
+    /// it through the responder chain whenever a text view doesn't have focus.
+    private(set) weak var undoManager: UndoManager?
+
+    /// Adopt the window's undo manager for file operations.
+    func attachUndoManager(_ manager: UndoManager?) {
+        undoManager = manager
+    }
 
     // MARK: - Library (SwiftData-backed)
 
@@ -1014,8 +1021,8 @@ final class AppState {
     // MARK: Undo plumbing
 
     private func registerUndo(_ name: String, _ action: @escaping () -> Void) {
-        undoManager.registerUndo(withTarget: self) { _ in action() }
-        undoManager.setActionName(name)
+        undoManager?.registerUndo(withTarget: self) { _ in action() }
+        undoManager?.setActionName(name)
     }
 
     /// Trash without registering undo — used as the inverse of create/duplicate.
