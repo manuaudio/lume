@@ -4,14 +4,14 @@ Full audit across five dimensions: correctness, security, concurrency/state, arc
 
 ## Resolution status (branch `audit-fixes`, 2026-06-10)
 
-All findings below were addressed on the `audit-fixes` branch per `docs/superpowers/plans/2026-06-10-audit-fixes.md` (see its "Coverage map" section for the finding → task mapping). Each fix was spot-verified against the code; the full test suite passes. **Audit correction discovered during execution:** the plist CDATA finding (§3) was overstated — Apple's `XMLParser` falls back to `foundCharacters` when no `foundCDATA` handler is set, so content was not actually lost; the explicit handler added in `6c1cbf3` is defensive (that fallback is undocumented).
+All findings below were addressed on the `audit-fixes` branch per `docs/superpowers/plans/2026-06-10-audit-fixes.md` (see its "Coverage map" section for the finding → task mapping). Each fix was spot-verified against the code; the full test suite passes. **Audit correction discovered during execution:** the plist CDATA finding (§3) was overstated — Apple's `XMLParser` falls back to `foundCharacters` when no `foundCDATA` handler is set, so content was not actually lost; the explicit handler added in `5f0d97e` is defensive (that fallback is undocumented).
 
 | Finding | Status | Where |
 |---|---|---|
 | C1 stale async load saves A into B | Fixed | `e28a3ef` guard stale document loads with selection generation |
 | C2 mergeTags prunes unrelated empty tags | Fixed | `02c7c2d` mergeTags no longer prunes unrelated empty tags |
-| C3 YAML round-trip retypes strings | Fixed | `25c1316` quote YAML strings whose plain form would change type |
-| C4 JSON surrogate-pair escapes rejected | Fixed | `0f583ec` JSON surrogate pairs, strict number grammar, depth cap |
+| C3 YAML round-trip retypes strings | Fixed | `729c5d4` quote YAML strings whose plain form would change type |
+| C4 JSON surrogate-pair escapes rejected | Fixed | `7320cbb` JSON surrogate pairs, strict number grammar, depth cap |
 | C5 HTMLViewer executes JavaScript | Fixed | `628a89f` disable JS and lock navigation in HTMLViewer |
 | C6 DirectoryWatcher use-after-free | Fixed | `3ea1ab0` retain FSEvents sink and drain queue on teardown |
 | A1 AppState god object | Deferred | follow-up decomposition plan |
@@ -19,34 +19,34 @@ All findings below were addressed on the `audit-fixes` branch per `docs/superpow
 | A3 corrupt-store fallback silent/`try!` | Fixed | `9fca6d3` corrupt-store recovery with visible degraded modes |
 | A3b no versioned schema | Fixed | `6486505` versioned SwiftData schema + migration plan |
 | A4 FileProvider/FileID abstraction | Deferred | follow-up plan (before remote backends) |
-| Plist `<data>`/`<date>` retyped; CDATA | Fixed | `6c1cbf3` native round-trip + CDATA handler; `2256c14` (finding overstated, see note above) |
-| TOML dates retyped; bad numbers → `0` | Fixed | `be93da9` native date round-trip; throw on unparseable numbers |
-| JSON number grammar + recursion depth | Fixed | `0f583ec` (same commit as C4) |
-| EnvFile CRLF parsing | Fixed | `dcc40bf` splits on `isNewline`; EnvFile test suite added |
-| SecretDetector filename/content gaps | Fixed | `7a6d5b7` content scan + broader filename coverage |
+| Plist `<data>`/`<date>` retyped; CDATA | Fixed | `5f0d97e` native round-trip + CDATA handler; `a200d31` (finding overstated, see note above) |
+| TOML dates retyped; bad numbers → `0` | Fixed | `af54d1c` native date round-trip; throw on unparseable numbers |
+| JSON number grammar + recursion depth | Fixed | `7320cbb` (same commit as C4) |
+| EnvFile CRLF parsing | Fixed | `1a2dd43` splits on `isNewline`; EnvFile test suite added |
+| SecretDetector filename/content gaps | Fixed | `44fe766` content scan + broader filename coverage |
 | Pasteboard secrets unconcealed | Fixed | `8dd232d` `org.nspasteboard.ConcealedType` via `Pasteboard.write(_:concealed:)` |
 | recomputeSyncStatus staleness | Fixed | `5b6142c` syncGeneration token guard |
 | Overwrite-all blocks main actor | Fixed | `529a421` off-main via testable `CanonicalOverwrite` in LumeKit |
 | Watcher main-thread work per batch | Fixed | `4b0ceb6` FSEvents bursts off main; skip untracked refreshes |
 | ScanTriage/Bundle/Diff stale tasks | Fixed | `88a15ac` + `d812089` `detachedValue` stale-guard helper |
 | Notes popover cross-file write | Fixed | `dc63d4b` saves against the URL it loaded from |
-| ⌘Z routing + stale menu enablement | Fixed | `85368ea` responder-chain undo; dedicated editor undo stack |
+| ⌘Z routing + stale menu enablement | Fixed | `1cc3d7e` responder-chain undo; dedicated editor undo stack |
 | Second window nukes navigation state | Fixed | `9fca6d3` first-window launch guard in LumeApp |
 | EnvEditor index-captured bindings | Fixed | `0b8120d` bounds + key checks in `bindingForValue` |
 | moveToTrash leaves document state stale | Fixed | `3288772` full `closeDocument()` reset on trash |
 | save() blocks main actor | Fixed | `7459ca5` coordinated saves off the main actor |
 | rename accepts `../` traversal | Fixed | `8dfc224` FileNameValidator + `2d82d80` validation in rename |
 | FileService follows symlinks | Fixed | `96817fd` symlinks listed as leaves, never enumerated |
-| DocumentRouter vs ContentView drift | Fixed | `a3acdc5` detail pane routes through DocumentRouter |
+| DocumentRouter vs ContentView drift | Fixed | `671bebd` detail pane routes through DocumentRouter |
 | Shared read API (6+ raw reads) | Partial | `529a421` moved overwrite reads into LumeKit; full seam deferred to FileProvider plan |
 | Error channel doubles as success banner | Fixed | `2050caf` transient notice banner split from errorMessage |
 | rename/move orphan path-keyed rows | Fixed | `e5f1307` `repointPath` + `2d82d80` wired into rename |
 | Legacy Bookmark CRUD dead code | Fixed | `990413d` CRUD removed; model kept for schema compatibility |
-| RowSelection.revalidate drops GROUPS ids | Fixed | `f8c201b` fail-open for GROUPS-grammar row ids |
-| Dead code (AppState.files, FileServicing.read/write, TagSuggest) | Fixed | `a7bfd5a` removed |
+| RowSelection.revalidate drops GROUPS ids | Fixed | `861aa67` fail-open for GROUPS-grammar row ids |
+| Dead code (AppState.files, FileServicing.read/write, TagSuggest) | Fixed | `d321f47` removed |
 | Triplicate test fixtures | Fixed | `a3dbffc` one shared full-schema fixture |
-| LineDiff/SecretDetector/watcher/EnvFile test gaps | Fixed | `54c2eb9`, `7a6d5b7`, `3ea1ab0`, `dcc40bf` |
-| Temp-dir cleanup; home-dir test dependence | Partial | cleanup fixed in `54c2eb9`; home-dir dependence accepted (documented) |
+| LineDiff/SecretDetector/watcher/EnvFile test gaps | Fixed | `a845636`, `44fe766`, `3ea1ab0`, `1a2dd43` |
+| Temp-dir cleanup; home-dir test dependence | Partial | cleanup fixed in `a845636`; home-dir dependence accepted (documented) |
 | App Sandbox / Hardened Runtime off | Deferred | documented trade-off for local dev builds |
 | FileSystemCache render-time I/O | Deferred | FileProvider plan (documented trade-off) |
 
