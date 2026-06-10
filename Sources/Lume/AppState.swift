@@ -176,6 +176,11 @@ final class AppState {
     // MARK: - Internals
 
     private var loadedText: String?
+    /// Guards stale document loads: `select(_:)` applies a finished load only if
+    /// no newer selection superseded it while the read was in flight.
+    private var selectionGeneration = Generation()
+    /// The in-flight document load; cancelled (best-effort) on each `choose`.
+    private var loadTask: Task<Void, Never>?
     private let files = FileService()
     /// Main-actor enumeration cache; FSEvents invalidations bump its `revision`.
     let cache = FileSystemCache()
@@ -1257,11 +1262,13 @@ final class AppState {
         if activeBundle != nil { closeBundle() }
         if activeScan != nil { closeScan() }
         selectedURL = url
-        Task { await select(url) }
+        loadTask?.cancel()
+        loadTask = Task { await select(url) }
     }
 
     /// Select a file: load text if it's textual, else mark as non-text.
     func select(_ url: URL) async {
+        let token = selectionGeneration.advance()
         selectedURL = url
         errorMessage = nil
         let kind = FileKind.detect(filename: url.lastPathComponent)
@@ -1275,10 +1282,15 @@ final class AppState {
         }
         do {
             let doc = try await TextDocument.load(url)
+            // A newer selection (or trash / open-folder) may have superseded this
+            // load while it was in flight — applying it then would let one
+            // keystroke + ⌘S write file A's contents into file B.
+            guard selectionGeneration.isCurrent(token), selectedURL == url else { return }
             documentText = doc.text
             loadedText = doc.text
             isDirty = false
         } catch {
+            guard selectionGeneration.isCurrent(token), selectedURL == url else { return }
             documentText = nil
             loadedText = nil
             errorMessage = "Couldn't open \(url.lastPathComponent) as text."
