@@ -61,8 +61,7 @@ struct EnvEditorView: View {
                 .buttonStyle(.borderless)
                 .help(revealed.contains(index) ? "Hide value" : "Reveal value")
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(entry.value, forType: .string)
+                    Pasteboard.write(entry.value, concealed: true)
                 } label: { Image(systemName: "doc.on.doc") }
                 .buttonStyle(.borderless)
                 .help("Copy value")

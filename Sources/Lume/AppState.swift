@@ -891,10 +891,7 @@ final class AppState {
 
     /// Copy the selected files' POSIX paths to the clipboard (⌥⌘C).
     func copySelectedPaths() {
-        let text = PathExport.clipboardString(for: selectedURLs)
-        guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        Pasteboard.write(PathExport.clipboardString(for: selectedURLs))
     }
 
     /// Create a new folder in the current browse directory.
@@ -1124,18 +1121,12 @@ final class AppState {
 
     var tickedURLs: [URL] { scanResults.filter { tickedPaths.contains($0.path) } }
 
-    private func writeToPasteboard(_ text: String) {
-        guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
     func copyTickedPaths() {
-        writeToPasteboard(PathExport.clipboardString(for: tickedURLs))
+        Pasteboard.write(PathExport.clipboardString(for: tickedURLs))
     }
 
     func copyTickedAsPrompt() {
-        writeToPasteboard(PathExport.promptString(for: tickedURLs))
+        Pasteboard.write(PathExport.promptString(for: tickedURLs))
     }
 
     // MARK: - Propagate (canonical sync) actions
@@ -1249,7 +1240,7 @@ final class AppState {
 
     private func performContextCopy(_ urls: [URL]) {
         let assembled = ContextAssembler.assemble(urls, format: contextFormat)
-        writeToPasteboard(assembled.text)
+        Pasteboard.write(assembled.text, concealed: true)
     }
 
     // MARK: - Bundles
