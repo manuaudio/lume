@@ -1345,16 +1345,27 @@ final class AppState {
     /// The currently-loaded on-disk text (for structured editors to parse).
     var currentText: String { documentText ?? "" }
 
-    /// Save the open document back to disk.
+    /// Save the open document back to disk. The coordinated write runs off the
+    /// main actor (mirroring `TextDocument.load`) — an iCloud / slow-volume file
+    /// can block a coordinated write arbitrarily long.
     func save() {
         guard let url = selectedURL, let text = documentText, isDirty else { return }
-        do {
-            try TextDocument(url: url, text: text).save()
-            loadedText = text
-            isDirty = false
-            cache.invalidate(path: url.deletingLastPathComponent().path)
-        } catch {
-            errorMessage = "Couldn't save \(url.lastPathComponent): \(error.localizedDescription)"
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try TextDocument(url: url, text: text).save()
+                }.value
+                // Apply dirty tracking only if the same document is still open;
+                // if the user kept typing while the write was in flight, the doc
+                // stays dirty relative to what actually hit the disk.
+                if selectedURL == url {
+                    loadedText = text
+                    isDirty = (documentText != text)
+                }
+                cache.invalidate(path: url.deletingLastPathComponent().path)
+            } catch {
+                showNotice("Couldn't save \(url.lastPathComponent): \(error.localizedDescription)")
+            }
         }
     }
 }
