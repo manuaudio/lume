@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Everything Lume remembers about SSH connections: manually-entered hosts
 /// plus per-host last path / recent files. JSON in Application Support —
@@ -75,13 +76,21 @@ public final class ConnectionStore {
         persist()
     }
 
+    /// Best-effort persistence: a failed save loses only connection metadata
+    /// (recents/last paths), so failures are logged rather than surfaced.
     private func persist() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(state) else { return }
-        try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try encoder.encode(state)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            Self.logger.error("connections.json save failed: \(error.localizedDescription)")
+        }
     }
+
+    private static let logger = Logger(subsystem: "com.lume.Lume", category: "ConnectionStore")
 }
