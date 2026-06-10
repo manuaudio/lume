@@ -50,4 +50,43 @@ import Testing
             try TOMLConfigFormat.serialize(.string("not a table"))
         }
     }
+
+    @Test func roundTripsDateAndTimeValuesUnquoted() throws {
+        // Fails before the fix: dates re-serialized as quoted strings
+        // (released = "2024-06-01"), changing the TOML value type on save.
+        let value = try TOMLConfigFormat.parse("""
+        released = 2024-06-01
+        at = 07:32:00
+        stamp = 1979-05-27T07:32:00Z
+        """)
+        guard case let .object(entries) = value else {
+            Issue.record("expected object, got \(value)"); return
+        }
+        let byKey = Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.value) })
+        #expect(byKey["released"] == .date("2024-06-01"))
+        #expect(byKey["at"] == .date("07:32:00"))
+        let out = try TOMLConfigFormat.serialize(value)
+        #expect(out.contains("released = 2024-06-01"))
+        #expect(!out.contains(#""2024-06-01""#))
+        #expect(out.contains("at = 07:32:00"))
+        #expect(out.contains("stamp = 1979-05-27T07:32:00Z"))
+        #expect(try TOMLConfigFormat.parse(out) == value)
+    }
+
+    @Test func throwsOnUnparseableNumberLexeme() {
+        // Fails before the fix: "1.2.3" silently serialized as 0.
+        #expect(throws: ConfigParseError.self) {
+            try TOMLConfigFormat.serialize(.object([
+                ConfigEntry(key: "n", value: .number("1.2.3")),
+            ]))
+        }
+    }
+
+    @Test func throwsOnUnparseableDateLexeme() {
+        #expect(throws: ConfigParseError.self) {
+            try TOMLConfigFormat.serialize(.object([
+                ConfigEntry(key: "d", value: .date("not-a-date")),
+            ]))
+        }
+    }
 }

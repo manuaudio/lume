@@ -21,7 +21,7 @@ public enum TOMLConfigFormat: ConfigFormat {
         guard case let .object(entries) = value else {
             throw ConfigParseError("TOML root must be a table")
         }
-        return buildTable(entries).convert()
+        return try buildTable(entries).convert()
     }
 
     private static func convert(_ value: TOMLValueConvertible) -> ConfigValue {
@@ -42,31 +42,43 @@ public enum TOMLConfigFormat: ConfigFormat {
         case .bool:
             return .bool(value.bool ?? false)
         case .date, .time, .dateTime:
-            // No ConfigValue date type — keep the textual form (stable round-trip).
-            return .string(value.debugDescription)
+            // Keep the TOML lexeme so serialization can emit a native
+            // (unquoted) date/time instead of retyping it to a string.
+            return .date(value.debugDescription)
         }
     }
 
-    private static func buildTable(_ entries: [ConfigEntry]) -> TOMLTable {
+    private static func buildTable(_ entries: [ConfigEntry]) throws -> TOMLTable {
         let table = TOMLTable()
         for entry in entries {
-            table[entry.key] = tomlValue(entry.value)
+            table[entry.key] = try tomlValue(entry.value)
         }
         return table
     }
 
-    private static func tomlValue(_ value: ConfigValue) -> TOMLValueConvertible {
+    private static func tomlValue(_ value: ConfigValue) throws -> TOMLValueConvertible {
         switch value {
         case let .string(s): return s
         case let .number(n):
             if !n.contains("."), !n.lowercased().contains("e"), let i = Int(n) { return i }
-            return Double(n) ?? 0
+            if let d = Double(n) { return d }
+            throw ConfigParseError("not a valid TOML number: '\(n)'")
         case let .bool(b): return b
         case .null: return ""   // TOML has no null; closest stable mapping is empty string
-        case let .date(lexeme): return lexeme   // refined to native TOML dates in Task 30
-        case let .data(base64): return base64   // TOML has no binary type; base64 text as string
-        case let .array(items): return TOMLArray(items.map(tomlValue))
-        case let .object(entries): return buildTable(entries)
+        case let .date(lexeme):
+            // Re-parse the lexeme through TOMLKit so it serializes as a native
+            // date/time. Copy the value structs out — the probe table is temporary.
+            guard let probe = try? TOMLTable(string: "v = \(lexeme)"), let v = probe["v"] else {
+                throw ConfigParseError("not a valid TOML date/time: '\(lexeme)'")
+            }
+            if let dateTime = v.dateTime { return dateTime }
+            if let date = v.date { return date }
+            if let time = v.time { return time }
+            throw ConfigParseError("not a valid TOML date/time: '\(lexeme)'")
+        case let .data(base64):
+            return base64   // TOML has no binary type; keep the base64 text as a string
+        case let .array(items): return TOMLArray(try items.map(tomlValue))
+        case let .object(entries): return try buildTable(entries)
         }
     }
 }
