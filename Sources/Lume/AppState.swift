@@ -196,7 +196,6 @@ final class AppState {
     private var selectionGeneration = Generation()
     /// The in-flight document load; cancelled (best-effort) on each `choose`.
     private var loadTask: Task<Void, Never>?
-    private let files = FileService()
     /// Main-actor enumeration cache; FSEvents invalidations bump its `revision`.
     let cache = FileSystemCache()
     private var watcher: DirectoryWatcher?

@@ -5,8 +5,6 @@ public protocol FileServicing: Sendable {
     /// dotfiles (`.env`, `.claude`, `.gitignore`, …) are revealed; either way the
     /// always-noise names below are filtered.
     func enumerate(_ directory: URL, includeHidden: Bool) throws -> [FileNode]
-    func read(_ url: URL) throws -> String
-    func write(_ text: String, to url: URL) throws
 }
 
 public extension FileServicing {
@@ -51,13 +49,5 @@ public struct FileService: FileServicing {
             if a.isDirectory != b.isDirectory { return a.isDirectory } // folders first
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
-    }
-
-    public func read(_ url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
-    public func write(_ text: String, to url: URL) throws {
-        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 }

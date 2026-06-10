@@ -13,8 +13,6 @@ private final class CountingFileService: FileServicing, @unchecked Sendable {
         lock.withLock { _count += 1 }
         return try FileService().enumerate(directory, includeHidden: includeHidden)
     }
-    func read(_ url: URL) throws -> String { try FileService().read(url) }
-    func write(_ text: String, to url: URL) throws { try FileService().write(text, to: url) }
 }
 
 private func makeTempDirWithFile() throws -> URL {
