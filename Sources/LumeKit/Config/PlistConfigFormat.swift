@@ -110,6 +110,17 @@ private final class PlistBuilder: NSObject, XMLParserDelegate {
         if capturing { text += string }
     }
 
+    /// XMLParser routes `<![CDATA[…]]>` here, not to `foundCharacters` —
+    /// without this, CDATA content inside a leaf silently parses to "".
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        guard capturing else { return }
+        guard let decoded = String(data: CDATABlock, encoding: .utf8) else {
+            failure = "CDATA block is not valid UTF-8"
+            return
+        }
+        text += decoded
+    }
+
     func parser(_ parser: XMLParser, didEndElement name: String,
                 namespaceURI: String?, qualifiedName: String?) {
         switch name {
@@ -121,7 +132,8 @@ private final class PlistBuilder: NSObject, XMLParserDelegate {
             stack[stack.count - 1] = .dict(entries: entries, pendingKey: text)
         case "string": capturing = false; emit(.string(text))
         case "integer", "real": capturing = false; emit(.number(text.trimmingCharacters(in: .whitespacesAndNewlines)))
-        case "data", "date": capturing = false; emit(.string(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        case "data": capturing = false; emit(.data(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        case "date": capturing = false; emit(.date(text.trimmingCharacters(in: .whitespacesAndNewlines)))
         case "dict":
             guard case let .dict(entries, pending)? = stack.popLast() else {
                 failure = "unbalanced </dict>"; return
