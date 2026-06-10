@@ -13,5 +13,6 @@ public protocol FileSource: Sendable {
     /// Replace the resource's contents atomically (a reader never observes a
     /// partial write), preserving its permissions.
     func write(_ text: String, to path: String) async throws
+    /// Metadata for the resource at `path`; throws if it doesn't exist.
     func stat(_ path: String) async throws -> ResourceMeta
 }

@@ -40,11 +40,13 @@ public struct ResourceMeta: Equatable, Sendable {
 public struct ResourceNode: Identifiable, Equatable, Sendable {
     public let ref: ResourceRef
     public let isDirectory: Bool
+    public let isSymlink: Bool
     public var children: [ResourceNode]?
 
-    public init(ref: ResourceRef, isDirectory: Bool, children: [ResourceNode]? = nil) {
+    public init(ref: ResourceRef, isDirectory: Bool, isSymlink: Bool = false, children: [ResourceNode]? = nil) {
         self.ref = ref
         self.isDirectory = isDirectory
+        self.isSymlink = isSymlink
         self.children = children
     }
 

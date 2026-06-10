@@ -16,7 +16,8 @@ public struct LocalFileSource: FileSource {
         return try files.enumerate(url, includeHidden: includeHidden).map { node in
             ResourceNode(
                 ref: ResourceRef(sourceID: .local, path: node.url.path),
-                isDirectory: node.isDirectory
+                isDirectory: node.isDirectory,
+                isSymlink: node.isSymlink
             )
         }
     }
@@ -33,12 +34,14 @@ public struct LocalFileSource: FileSource {
     }
 
     public func stat(_ path: String) async throws -> ResourceMeta {
-        let attrs = try FileManager.default.attributesOfItem(atPath: path)
-        let type = attrs[.type] as? FileAttributeType
-        return ResourceMeta(
-            isDirectory: type == .typeDirectory,
-            size: (attrs[.size] as? NSNumber)?.int64Value,
-            mode: (attrs[.posixPermissions] as? NSNumber)?.uint16Value
-        )
+        try await Task.detached(priority: .userInitiated) {
+            let attrs = try FileManager.default.attributesOfItem(atPath: path)
+            let type = attrs[.type] as? FileAttributeType
+            return ResourceMeta(
+                isDirectory: type == .typeDirectory,
+                size: (attrs[.size] as? NSNumber)?.int64Value,
+                mode: (attrs[.posixPermissions] as? NSNumber)?.uint16Value
+            )
+        }.value
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 @testable import LumeKit
 
 struct LocalFileSourceTests {
-    /// Builds a fixture dir: visible files, a dotfile, .env, node_modules, a subdir.
+    /// Builds a fixture dir: visible files, a dotfile, .env, node_modules, a subdir, and a symlink.
     private func makeFixture() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("LocalFileSourceTests-\(UUID().uuidString)")
@@ -15,6 +15,9 @@ struct LocalFileSourceTests {
             at: dir.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: dir.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: dir.appendingPathComponent("link.md"),
+            withDestinationURL: dir.appendingPathComponent("alpha.md"))
         return dir
     }
 
@@ -26,8 +29,9 @@ struct LocalFileSourceTests {
         let viaService = try FileService().enumerate(dir, includeHidden: false)
         #expect(viaSource.map(\.name) == viaService.map(\.name))
         #expect(viaSource.map(\.isDirectory) == viaService.map(\.isDirectory))
-        // Folders first, .env visible, dotfile + node_modules filtered:
-        #expect(viaSource.map(\.name) == ["sub", ".env", "alpha.md"])
+        #expect(viaSource.map(\.isSymlink) == viaService.map(\.isSymlink))
+        // Folders first, .env visible, dotfile + node_modules filtered; symlink is a leaf:
+        #expect(viaSource.map(\.name) == ["sub", ".env", "alpha.md", "link.md"])
     }
 
     @Test func readWriteRoundtrip() async throws {
