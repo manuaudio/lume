@@ -88,3 +88,48 @@ private func makeTempDirWithFile() throws -> URL {
     watcher.stop()
     watcher.stop() // idempotent
 }
+
+/// Collects watcher deliveries on the main actor.
+@MainActor
+private final class ChangeCollector {
+    var paths: Set<String> = []
+}
+
+@MainActor
+@Test func watcherDeliversChangeForFileWrite() async throws {
+    let dir = try makeTempDirWithFile()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let collector = ChangeCollector()
+    let watcher = DirectoryWatcher(root: dir) { collector.paths.formUnion($0) }
+    defer { watcher.stop() }
+
+    // Give FSEvents a beat to arm, then write; stream latency is 0.25s, so poll.
+    try await Task.sleep(for: .milliseconds(300))
+    try "y".write(to: dir.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+    for _ in 0..<100 where collector.paths.isEmpty {
+        try await Task.sleep(for: .milliseconds(100))
+    }
+    // FSEvents reports /private-prefixed temp paths; compare by suffix.
+    #expect(collector.paths.contains { $0.hasSuffix(dir.lastPathComponent) })
+}
+
+@MainActor
+@Test func droppingWatcherWithEventsInFlightDoesNotCrash() async throws {
+    // Regression for the teardown use-after-free window: generate events and
+    // immediately stop + drop the last reference, exactly like
+    // AppState.startWatching does when switching roots. Under the old
+    // passUnretained context this could resurrect a deallocated watcher.
+    for _ in 0..<20 {
+        let dir = try makeTempDirWithFile()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var watcher: DirectoryWatcher? = DirectoryWatcher(root: dir) { _ in }
+        for i in 0..<5 {
+            try "x".write(to: dir.appendingPathComponent("f\(i).md"),
+                          atomically: true, encoding: .utf8)
+        }
+        watcher?.stop()
+        watcher = nil
+    }
+    // Let any retained sinks and queued releases settle; passes by not crashing.
+    try await Task.sleep(for: .milliseconds(500))
+}

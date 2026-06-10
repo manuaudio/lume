@@ -6,34 +6,69 @@ import CoreServices
 /// the cached file tree in sync with external edits (Finder, other apps) without
 /// polling.
 ///
-/// Concurrency: FSEvents calls back on a private serial dispatch queue. The C
-/// trampoline receives an `Unmanaged<DirectoryWatcher>` (no non-Sendable Swift
-/// state captured), reads the event paths, then hops to the main actor to invoke
-/// `onChange`. The stream is created paused and started explicitly.
+/// Concurrency & lifetime: FSEvents calls back on a private serial dispatch
+/// queue. The stream's context `info` is an `EventSink` that FSEvents itself
+/// retains (the context supplies retain/release callbacks), so the callback
+/// target stays alive until the stream is fully invalidated — an in-flight
+/// event can never observe a deallocated object, even when the last
+/// `DirectoryWatcher` reference is dropped immediately after `stop()`.
+/// `teardown()` additionally drains the callback queue synchronously, so once
+/// `stop()` returns no callback is still executing.
 public final class DirectoryWatcher {
-    private let onChange: @MainActor (Set<String>) -> Void
+
+    /// The object FSEvents retains as its context `info`. Holds only the
+    /// immutable change handler; events are delivered by hopping to the main
+    /// actor. `@unchecked Sendable`: the single stored property is a `let`
+    /// main-actor closure that is only ever *invoked* on the main actor.
+    private final class EventSink: @unchecked Sendable {
+        private let onChange: @MainActor (Set<String>) -> Void
+
+        init(onChange: @escaping @MainActor (Set<String>) -> Void) {
+            self.onChange = onChange
+        }
+
+        /// Hop the changed-path set to the main actor and invoke `onChange`.
+        func deliver(_ dirs: Set<String>) {
+            guard !dirs.isEmpty else { return }
+            let handler = onChange
+            Task { @MainActor in handler(dirs) }
+        }
+    }
+
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "com.lume.DirectoryWatcher", qos: .utility)
 
     /// Start watching `root` (recursively). `onChange` receives the set of
     /// changed directory paths on the main actor.
     public init(root: URL, onChange: @escaping @MainActor (Set<String>) -> Void) {
-        self.onChange = onChange
-        start(root: root)
+        start(root: root, sink: EventSink(onChange: onChange))
     }
 
     deinit {
-        // `stop()` is safe to call off the main actor: it only touches the
-        // FSEvents stream handle, which is bound to this instance.
+        // `teardown()` is safe to call off the main actor: it only touches the
+        // FSEvents stream handle and the private queue, never the sink.
         teardown()
     }
 
-    private func start(root: URL) {
+    private func start(root: URL, sink: EventSink) {
+        // passUnretained + retain/release callbacks: FSEventStreamCreate copies
+        // the context and takes its OWN +1 on the sink via `retain`, balanced
+        // by `release` after the stream is invalidated and its pending queue
+        // work has completed. The sink's lifetime is therefore owned by
+        // FSEvents, not by this watcher, which closes the use-after-free
+        // window on teardown.
         var context = FSEventStreamContext(
             version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
+            info: Unmanaged.passUnretained(sink).toOpaque(),
+            retain: { info in
+                guard let info else { return nil }
+                _ = Unmanaged<EventSink>.fromOpaque(info).retain()
+                return info
+            },
+            release: { info in
+                guard let info else { return }
+                Unmanaged<EventSink>.fromOpaque(info).release()
+            },
             copyDescription: nil
         )
         let flags = UInt32(
@@ -43,7 +78,7 @@ public final class DirectoryWatcher {
         )
         let callback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
             guard let info else { return }
-            let watcher = Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
+            let sink = Unmanaged<EventSink>.fromOpaque(info).takeUnretainedValue()
             // With kFSEventStreamCreateFlagUseCFTypes the paths arrive as a
             // CFArray of CFString.
             let cfArray = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue()
@@ -57,7 +92,7 @@ public final class DirectoryWatcher {
                     dirs.insert(path)
                 }
             }
-            watcher.deliver(dirs)
+            sink.deliver(dirs)
         }
 
         let pathsToWatch = [root.path] as CFArray
@@ -76,13 +111,6 @@ public final class DirectoryWatcher {
         FSEventStreamStart(stream)
     }
 
-    /// Hop the changed-path set to the main actor and invoke `onChange`.
-    private func deliver(_ dirs: Set<String>) {
-        guard !dirs.isEmpty else { return }
-        let handler = onChange
-        Task { @MainActor in handler(dirs) }
-    }
-
     /// Stop watching and release the FSEvents stream. Idempotent.
     public func stop() {
         teardown()
@@ -90,9 +118,15 @@ public final class DirectoryWatcher {
 
     private func teardown() {
         guard let stream else { return }
+        self.stream = nil
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
-        self.stream = nil
+        // Drain the callback queue: any event callback that was already
+        // executing has finished by the time this returns. This can never
+        // deadlock — nothing in this class runs `teardown()` ON `queue`
+        // (the sink never references the watcher, so even the final release
+        // of `self` cannot occur there).
+        queue.sync {}
     }
 }
