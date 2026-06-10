@@ -24,8 +24,15 @@ final class AppState {
     private(set) var selectedKind: FileKind = .unsupported
     /// Whether the open document has unsaved edits.
     private(set) var isDirty = false
-    /// A user-facing, non-fatal error message for the detail pane.
+    /// A user-facing, non-fatal error message for the detail pane. Reserved for
+    /// document-OPEN failures (when the pane has nothing else to show); all
+    /// other reports (file-op failures, save errors, overwrite results) go to
+    /// the transient `notice` banner instead.
     private(set) var errorMessage: String?
+    /// Transient banner text shown as an overlay over the detail pane.
+    /// Auto-clears after a few seconds; never replaces the document.
+    private(set) var notice: String?
+    @ObservationIgnored private var noticeDismissTask: Task<Void, Never>?
 
     // MARK: - Filters (sidebar)
 
@@ -177,6 +184,27 @@ final class AppState {
     /// Kinds Lume edits as plain text in the editor (others get a viewer).
     static let textEditableKinds: Set<FileKind> = [.markdown, .env, .code]
 
+    // MARK: - Notices
+
+    /// Show a transient banner over the detail pane. Auto-clears after
+    /// `duration`; showing a new notice resets the clock.
+    func showNotice(_ message: String, duration: Duration = .seconds(4)) {
+        noticeDismissTask?.cancel()
+        notice = message
+        noticeDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    /// Dismiss the banner immediately (✕ button or context switch).
+    func dismissNotice() {
+        noticeDismissTask?.cancel()
+        noticeDismissTask = nil
+        notice = nil
+    }
+
     // MARK: - Activity feed
     private(set) var activity = ActivityLog()
     var recentChanges: [ActivityEntry] { activity.entries }
@@ -225,6 +253,7 @@ final class AppState {
         selectedURL = nil
         documentText = nil
         errorMessage = nil
+        dismissNotice()
         clearSelection()
         expandedPaths.removeAll()
         cache.invalidateAll()
@@ -836,7 +865,7 @@ final class AppState {
             cache.invalidate(path: dir.path)
             registerUndo("New Folder") { [weak self] in self?.trashSilently([url]) }
         } catch {
-            errorMessage = "Couldn't create folder: \(error.localizedDescription)"
+            showNotice("Couldn't create folder: \(error.localizedDescription)")
         }
     }
 
@@ -863,7 +892,7 @@ final class AppState {
             cache.invalidate(path: url.deletingLastPathComponent().path)
             registerUndo("Duplicate") { [weak self] in self?.trashSilently([dst]) }
         } catch {
-            errorMessage = "Couldn't duplicate \(url.lastPathComponent): \(error.localizedDescription)"
+            showNotice("Couldn't duplicate \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
