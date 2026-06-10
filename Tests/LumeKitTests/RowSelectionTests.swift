@@ -200,6 +200,61 @@ import Testing
         #expect(r.focus == id)
     }
 
+    // MARK: revalidate — GROUPS grammar (group|g|tag, groupfile|f|tag|path)
+
+    private static let groupHeader = GroupRowID.headerID(tagName: "api")
+    private static let groupFileA = GroupRowID.fileID(tagName: "api", path: "/x/a.md")
+    private static let groupFileB = GroupRowID.fileID(tagName: "api", path: "/x/b.md")
+
+    @Test func revalidateKeepsGroupHeaders() {
+        // A header is navigation (like a directory) — never dropped by a filter,
+        // even an empty `allowed` set.
+        let r = RowSelection.revalidate(selection: [Self.groupHeader],
+                                        anchor: Self.groupHeader, focus: Self.groupHeader,
+                                        allowed: Set<String>())
+        #expect(r.selection == [Self.groupHeader])
+        #expect(r.anchor == Self.groupHeader)
+        #expect(r.focus == Self.groupHeader)
+    }
+
+    @Test func revalidateKeepsGroupFileWithAllowedPath() {
+        let r = RowSelection.revalidate(selection: [Self.groupFileA],
+                                        anchor: Self.groupFileA, focus: Self.groupFileA,
+                                        allowed: ["/x/a.md"])
+        #expect(r.selection == [Self.groupFileA])
+        #expect(r.anchor == Self.groupFileA)
+        #expect(r.focus == Self.groupFileA)
+    }
+
+    @Test func revalidateDropsGroupFileWithDisallowedPath() {
+        let r = RowSelection.revalidate(selection: [Self.groupFileA, Self.groupFileB],
+                                        anchor: Self.groupFileB, focus: Self.groupFileB,
+                                        allowed: ["/x/a.md"])
+        #expect(r.selection == [Self.groupFileA])
+        #expect(r.anchor == nil)   // anchor pointed at dropped group file
+        #expect(r.focus == nil)
+    }
+
+    @Test func revalidateGroupFilePathWithPipeDecodesCorrectly() {
+        // The path field wins the remainder; "|" inside it is not structural.
+        let id = GroupRowID.fileID(tagName: "api", path: "/x/a|b.md")
+        let r = RowSelection.revalidate(selection: [id], anchor: id, focus: id,
+                                        allowed: ["/x/a|b.md"])
+        #expect(r.selection == [id])
+        #expect(r.anchor == id)
+        #expect(r.focus == id)
+    }
+
+    @Test func revalidateMixedGrammarsFilterBySameAllowedSet() {
+        // Browser row, group row, and header for the same filter pass coexist:
+        // both file rows key off the same real path; the header always stays.
+        let r = RowSelection.revalidate(
+            selection: [Self.fileA, Self.fileB, Self.groupFileA, Self.groupFileB, Self.groupHeader],
+            anchor: nil, focus: nil,
+            allowed: ["/x/a.md"])
+        #expect(r.selection == [Self.fileA, Self.groupFileA, Self.groupHeader])
+    }
+
     // MARK: click (mouse single-click — the regression these guard)
 
     @Test func plainClickSoleSelectsAndAnchors() {

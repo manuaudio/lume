@@ -88,11 +88,14 @@ public enum RowSelection {
     }
 
     /// Drop now-hidden FILE rows from a selection after a tag filter changes,
-    /// mirroring `FileTreeView.visibleChildren`: directories stay (always
-    /// navigable), and a file row survives only if its path is in `allowed`.
-    /// Each id is "section|d-or-f|path"; `isDirectory` is the "d"/"f" segment and
-    /// `path` is everything after it (paths may contain "|", so split at most
-    /// twice). Ids we can't decode are kept (fail open — never silently drop).
+    /// mirroring `FileTreeView.visibleChildren`. Two id grammars are understood:
+    ///   • browser/pinned — "section|d-or-f|path": "d" rows stay (directories are
+    ///     always navigable); "f" rows survive only if their path is in `allowed`
+    ///     (paths may contain "|", so split at most twice).
+    ///   • GROUPS (`GroupRowID`) — "group|g|<tag>" headers stay (navigable, like
+    ///     directories); "groupfile|f|<tag>|<path>" rows survive only if their
+    ///     REAL file path is in `allowed`.
+    /// Ids we can't decode are kept (fail open — never silently drop).
     /// Returns the surviving selection plus revalidated anchor/focus (each cleared
     /// to nil if it was dropped). When `allowed` is nil, NOTHING is filtered (no
     /// active filter) and the inputs pass through unchanged.
@@ -104,6 +107,17 @@ public enum RowSelection {
                                                              focus: String?) {
         guard let allowed else { return (selection, anchor, focus) }
         func survives(_ id: String) -> Bool {
+            // GROUPS grammar first: those ids ALSO split into 3 "|" parts, so the
+            // generic decode below would misread them (a header's tag name lands
+            // in the path slot and gets dropped — violating fail-open).
+            if let group = GroupRowID.decode(id) {
+                switch group {
+                case .header:
+                    return true                          // header → always keep
+                case .file(_, let path):
+                    return allowed.contains(path)        // group file → real path must be allowed
+                }
+            }
             let parts = id.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
             guard parts.count == 3 else { return true } // undecodable → keep
             if parts[1] == "d" { return true }          // directory → always keep
