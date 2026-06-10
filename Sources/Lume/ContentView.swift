@@ -134,6 +134,8 @@ private struct DetailView: View {
             BundleView()
         } else if let message = app.errorMessage {
             ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
+        } else if let remotePath = app.selectedRemotePath {
+            remoteViewer(forPath: remotePath)
         } else if let url = app.selectedURL {
             VStack(spacing: 0) {
                 if app.showEditorTags {
@@ -164,6 +166,41 @@ private struct DetailView: View {
             HTMLViewer(url: url)
         case .quickLook:
             QuickLookViewer(url: url)
+        }
+    }
+
+    /// Remote files reuse the text-backed editors (they render `documentText`,
+    /// which `selectRemote` filled). URL-backed viewers (PDF/image/HTML/
+    /// QuickLook) need a local file — out of scope for the SSH MVP.
+    @ViewBuilder
+    private func remoteViewer(forPath path: String) -> some View {
+        let name = (path as NSString).lastPathComponent
+        Group {
+            switch DocumentRouter.viewer(forFilename: name) {
+            case .envEditor:
+                EnvEditorView()
+            case .configEditor:
+                ConfigEditorView()
+            case .markdownEditor, .codeViewer:
+                if app.documentText != nil { EditorView() } else { loading }
+            case .pdf, .image, .html, .quickLook:
+                ContentUnavailableView(
+                    "Text Only Over SSH",
+                    systemImage: "bolt.horizontal",
+                    description: Text("\(name) can't be previewed over SSH — only text and config files open remotely.")
+                )
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if app.isRemoteSaving {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Saving…").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .padding(10)
+            }
         }
     }
 
