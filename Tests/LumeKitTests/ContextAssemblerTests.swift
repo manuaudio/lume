@@ -14,7 +14,9 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
 
 @Test func assembleXMLWrapsEachFile() throws {
     let a = try tempFile("CLAUDE.md", "# Rules\nUse TDD")
+    defer { try? FileManager.default.removeItem(at: a.deletingLastPathComponent()) }
     let b = try tempFile("config.json", "{\"k\":1}")
+    defer { try? FileManager.default.removeItem(at: b.deletingLastPathComponent()) }
     let result = ContextAssembler.assemble([a, b], format: .xml)
 
     #expect(result.fileCount == 2)
@@ -28,6 +30,7 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
 
 @Test func assembleMarkdownInfersLanguageAndHeading() throws {
     let py = try tempFile("script.py", "print('hi')")
+    defer { try? FileManager.default.removeItem(at: py.deletingLastPathComponent()) }
     let result = ContextAssembler.assemble([py], format: .markdown)
 
     #expect(result.text.contains("## \(ContextAssembler.displayPath(py))"))
@@ -37,12 +40,14 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
 
 @Test func markdownFenceLongerThanContentBackticks() throws {
     let md = try tempFile("CLAUDE.md", "Example:\n```\ncode\n```\n")
+    defer { try? FileManager.default.removeItem(at: md.deletingLastPathComponent()) }
     let result = ContextAssembler.assemble([md], format: .markdown)
     #expect(result.text.contains("````markdown"))
 }
 
 @Test func tokenEstimateIsCharsOverFour() throws {
     let f = try tempFile("a.txt", "abcdefgh")
+    defer { try? FileManager.default.removeItem(at: f.deletingLastPathComponent()) }
     let result = ContextAssembler.assemble([f], format: .xml)
     #expect(result.tokenEstimate == Int(ceil(Double(result.text.count) / 4.0)))
     #expect(result.tokenEstimate > 0)
@@ -50,6 +55,7 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
 
 @Test func unreadableFilesAreCollectedNotDropped() throws {
     let good = try tempFile("good.md", "hello")
+    defer { try? FileManager.default.removeItem(at: good.deletingLastPathComponent()) }
     let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).md")
     let result = ContextAssembler.assemble([good, missing], format: .xml)
 
@@ -73,6 +79,7 @@ private func tempFile(_ name: String, _ contents: String) throws -> URL {
 
 @Test func xmlEscapesBodySoNestedTagsDontBreakStructure() throws {
     let f = try tempFile("notes.md", "Use a </document> tag & <thing>")
+    defer { try? FileManager.default.removeItem(at: f.deletingLastPathComponent()) }
     let result = ContextAssembler.assemble([f], format: .xml)
     #expect(!result.text.contains("</document> tag"))        // raw closing tag must not survive
     #expect(result.text.contains("&lt;/document&gt; tag &amp; &lt;thing&gt;"))

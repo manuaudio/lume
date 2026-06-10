@@ -19,6 +19,7 @@ private func tokTempFile(_ name: String, bytes: Int) throws -> URL {
 
 @Test func estimateFileFromByteSize() throws {
     let url = try tokTempFile("a.txt", bytes: 40)
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     #expect(TokenEstimator.estimateFile(url) == 10)
     #expect(TokenEstimator.estimateFile(URL(fileURLWithPath: "/nope/\(UUID().uuidString).txt")) == nil)
 }
