@@ -143,23 +143,21 @@ private struct DetailView: View {
 
     @ViewBuilder
     private func viewer(for url: URL) -> some View {
-        if app.selectedKind == .env {
+        switch DocumentRouter.viewer(forFilename: url.lastPathComponent) {
+        case .envEditor:
             EnvEditorView()
-        } else if ConfigRegistry.format(forFilename: url.lastPathComponent) != nil {
+        case .configEditor:
             ConfigEditorView()
-        } else {
-            switch app.selectedKind {
-            case .markdown, .code, .env:
-                if app.documentText != nil { EditorView() } else { loading }
-            case .pdf:
-                PDFViewer(url: url)
-            case .image:
-                ImageViewer(url: url)
-            case .html:
-                HTMLViewer(url: url)
-            case .previewable, .unsupported:
-                QuickLookViewer(url: url)
-            }
+        case .markdownEditor, .codeViewer:
+            if app.documentText != nil { EditorView() } else { loading }
+        case .pdf:
+            PDFViewer(url: url)
+        case .image:
+            ImageViewer(url: url)
+        case .html:
+            HTMLViewer(url: url)
+        case .quickLook:
+            QuickLookViewer(url: url)
         }
     }
 
