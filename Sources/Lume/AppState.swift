@@ -892,14 +892,24 @@ final class AppState {
     func rename(_ url: URL, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != url.lastPathComponent else { return }
+        // A rename must stay a single path component: "../evil" or "a/b" would
+        // silently relocate the file instead of renaming it.
+        guard FileNameValidator.isValid(trimmed) else {
+            showNotice("\"\(trimmed)\" isn't a valid file name.")
+            return
+        }
         let dst = url.deletingLastPathComponent().appendingPathComponent(trimmed)
         do {
             try fm.moveItem(at: url, to: dst)
+            // Keep path-keyed library rows (tags / notes / pins / hidden flag)
+            // attached to the renamed file (Task 15's repointPath).
+            library?.repointPath(from: url.path, to: dst.path)
+            refreshLibrary()
             cache.invalidate(path: url.deletingLastPathComponent().path)
             if selectedURL == url { choose(dst) }
             registerUndo("Rename") { [weak self] in self?.rename(dst, to: url.lastPathComponent) }
         } catch {
-            errorMessage = "Couldn't rename \(url.lastPathComponent): \(error.localizedDescription)"
+            showNotice("Couldn't rename \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
