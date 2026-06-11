@@ -13,7 +13,7 @@ struct RemoteTreeView: View {
                 switch remote.phase {
                 case .connecting:
                     Spacer()
-                    ProgressView("Connecting to \(remote.host.alias)…")
+                    ProgressView("Connecting to \(remote.displayName)…")
                         .controlSize(.small)
                     Spacer()
                 case .failed(let message):
@@ -66,10 +66,7 @@ struct RemoteTreeView: View {
         }
     }
 
-    private var recentFiles: [String] {
-        guard let alias = app.remote?.host.alias else { return [] }
-        return app.connections.state.hostState[alias]?.recentFiles ?? []
-    }
+    private var recentFiles: [String] { app.remoteRecentFiles }
 
     private var goToBar: some View {
         HStack(spacing: 6) {

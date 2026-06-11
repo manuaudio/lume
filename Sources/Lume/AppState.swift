@@ -1440,16 +1440,17 @@ final class AppState {
 
     func connectSSH(_ host: SSHHost) {
         // Reconnecting to the already-active host just brings its tree back.
-        if let remote, remote.host.alias == host.alias {
+        if let remote, remote.sourceID == .ssh(alias: host.alias) {
             showRemoteSource()
             if case .failed = remote.phase { Task { await remote.connect() } }
             return
         }
         let previous = remote
-        Task { await previous?.transport.disconnect() }
-        let session = RemoteSession(
+        Task { await previous?.disconnect() }
+        let connection = SSHConnection(
             host: host,
             startPath: connections.state.hostState[host.alias]?.lastPath)
+        let session = RemoteSession(connection: connection, source: connection.source)
         remote = session
         showingRemote = true
         clearDocumentSelection()
@@ -1474,7 +1475,7 @@ final class AppState {
         remote = nil
         showingRemote = false
         clearDocumentSelection()
-        Task { await session?.transport.disconnect() }
+        Task { await session?.disconnect() }
     }
 
     /// Reset the open-document state when crossing the local/remote boundary.
@@ -1527,13 +1528,12 @@ final class AppState {
             documentText = text
             loadedText = text
             isDirty = false
-            connections.noteOpened(alias: remote.host.alias, file: path)
+            noteRemoteOpened(path)
         } catch {
             guard selectionGeneration.isCurrent(token), selectedRemotePath == path else { return }
             documentText = nil
             loadedText = nil
-            errorMessage = (error as? SSHError)?.userMessage
-                ?? "Couldn't open \(name) over SSH."
+            errorMessage = remote.userMessage(for: error)
         }
     }
 
@@ -1550,13 +1550,40 @@ final class AppState {
                 let meta = try await remote.source.stat(path)
                 if meta.isDirectory {
                     await remote.reroot(to: path)
-                    connections.noteBrowsed(alias: remote.host.alias, path: path)
+                    noteRemoteBrowsed(path)
                 } else {
                     chooseRemote(path)
                 }
             } catch {
-                showNotice((error as? SSHError)?.userMessage ?? "Couldn't open \(path).")
+                showNotice(remote.userMessage(for: error))
             }
+        }
+    }
+
+    /// Per-backend store bookkeeping: "user opened this remote file".
+    private func noteRemoteOpened(_ path: String) {
+        guard let remote else { return }
+        switch remote.sourceID {
+        case .ssh(let alias): connections.noteOpened(alias: alias, file: path)
+        default: break
+        }
+    }
+
+    /// Per-backend store bookkeeping: "user browsed to this remote directory".
+    private func noteRemoteBrowsed(_ path: String) {
+        guard let remote else { return }
+        switch remote.sourceID {
+        case .ssh(let alias): connections.noteBrowsed(alias: alias, path: path)
+        default: break
+        }
+    }
+
+    /// Recent files for the active remote (drives the tree's Recent section).
+    var remoteRecentFiles: [String] {
+        guard let remote else { return [] }
+        switch remote.sourceID {
+        case .ssh(let alias): return connections.state.hostState[alias]?.recentFiles ?? []
+        default: return []
         }
     }
 
@@ -1573,8 +1600,7 @@ final class AppState {
                     isDirty = (documentText != text)
                 }
             } catch {
-                showNotice((error as? SSHError)?.userMessage
-                    ?? "Couldn't save \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+                showNotice(remote.userMessage(for: error))
             }
             isRemoteSaving = false
         }

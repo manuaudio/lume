@@ -18,7 +18,7 @@ struct SourceSwitcherView: View {
                     Button {
                         app.showRemoteSource()
                     } label: {
-                        Label(remote.host.alias, systemImage: "bolt.horizontal")
+                        Label(remote.displayName, systemImage: "bolt.horizontal")
                     }
                 }
                 if !app.sshConfigAliases.isEmpty {
@@ -70,7 +70,7 @@ struct SourceSwitcherView: View {
     }
 
     private var title: String {
-        if app.showingRemote, let remote = app.remote { return remote.host.alias }
+        if app.showingRemote, let remote = app.remote { return remote.displayName }
         return localTitle
     }
 

@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import LumeKit
 
-/// One live SSH connection: its transport, file source, and the remote tree's
-/// UI state (root, expansion, lazily-loaded children).
+/// One live remote session: its backend connection, file source, and the
+/// remote tree's UI state (root, expansion, lazily-loaded children).
 @MainActor
 @Observable
 final class RemoteSession {
@@ -13,13 +13,12 @@ final class RemoteSession {
         case failed(String)
     }
 
-    let host: SSHHost
-    let transport: SSHTransport
-    let source: SSHFileSource
+    let connection: any RemoteConnection
+    let source: any FileSource
 
     var phase: Phase = .connecting
     /// The directory the tree is rooted at (resolved to absolute on connect).
-    var rootPath: String
+    var rootPath: String = "/"
     /// Lazily-loaded children per directory path; missing key = not loaded yet.
     private(set) var children: [String: [ResourceNode]] = [:]
     var expanded: Set<String> = []
@@ -28,26 +27,31 @@ final class RemoteSession {
     /// Last non-fatal listing error (shown as a notice by the tree view).
     var lastError: String?
 
-    init(host: SSHHost, startPath: String?) {
-        self.host = host
-        let transport = SSHTransport(host: host)
-        self.transport = transport
-        self.source = SSHFileSource(host: host, transport: transport)
-        self.rootPath = startPath ?? "."
+    var sourceID: SourceID { connection.sourceID }
+    var displayName: String { connection.displayName }
+
+    init(connection: any RemoteConnection, source: any FileSource) {
+        self.connection = connection
+        self.source = source
     }
 
     func connect() async {
         phase = .connecting
         do {
-            try await transport.connect()
-            if !rootPath.hasPrefix("/") {
-                rootPath = try await source.realpath(rootPath)   // "." → home dir
-            }
+            rootPath = try await connection.connect()
             phase = .ready
             await loadChildren(of: rootPath)
         } catch {
-            phase = .failed((error as? SSHError)?.userMessage ?? error.localizedDescription)
+            phase = .failed(connection.userMessage(for: error))
         }
+    }
+
+    func disconnect() async {
+        await connection.disconnect()
+    }
+
+    func userMessage(for error: Error) -> String {
+        connection.userMessage(for: error)
     }
 
     func loadChildren(of path: String) async {
@@ -58,7 +62,7 @@ final class RemoteSession {
             children[path] = try await source.list(path, includeHidden: false)
         } catch {
             children[path] = []
-            lastError = (error as? SSHError)?.userMessage ?? error.localizedDescription
+            lastError = connection.userMessage(for: error)
         }
     }
 
