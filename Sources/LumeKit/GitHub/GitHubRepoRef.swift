@@ -3,6 +3,9 @@ import Foundation
 /// One GitHub repository, parsed from user input: a bare "owner/repo" slug,
 /// a github.com URL (https or ssh, .git suffix, tree/blob deep links), all
 /// reduce to the same owner/name pair.
+///
+/// Validation is deliberately lenient (one shared charset for owner and
+/// repo): a name GitHub wouldn't accept simply 404s at the API.
 public struct GitHubRepoRef: Hashable, Sendable {
     public let owner: String
     public let name: String
@@ -12,7 +15,14 @@ public struct GitHubRepoRef: Hashable, Sendable {
     public init?(parsing raw: String) {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
-        if let range = s.range(of: "github.com") {
+        if let range = s.range(of: "github.com", options: .caseInsensitive) {
+            // range(of:) is a substring search — guard the host boundary so
+            // e.g. "github.community" or "mygithub.com" can't masquerade.
+            let after = range.upperBound < s.endIndex ? s[range.upperBound] : "/"
+            let before = range.lowerBound > s.startIndex
+                ? s[s.index(before: range.lowerBound)] : "/"
+            guard after == ":" || after == "/",
+                  !before.isLetter, !before.isNumber else { return nil }
             // URL form: everything after the host, ":" (ssh) or "/" (https).
             s = String(s[range.upperBound...])
                 .trimmingCharacters(in: CharacterSet(charactersIn: ":/"))

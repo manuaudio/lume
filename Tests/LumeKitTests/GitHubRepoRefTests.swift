@@ -17,6 +17,8 @@ struct GitHubRepoRefTests {
             "https://github.com/manuaudio/lume/blob/main/README.md",
             "github.com/manuaudio/lume/",
             "git@github.com:manuaudio/lume.git",
+            "GitHub.com/manuaudio/lume",
+            "https://www.github.com/manuaudio/lume",
         ] {
             #expect(GitHubRepoRef(parsing: input)?.slug == "manuaudio/lume", "failed: \(input)")
         }
@@ -27,7 +29,8 @@ struct GitHubRepoRefTests {
     }
 
     @Test func rejectsJunk() {
-        for input in ["", "lume", "a/b/c", "owner/", "/repo", "owner/re po", "owner/re|po"] {
+        for input in ["", "lume", "a/b/c", "owner/", "/repo", "owner/re po", "owner/re|po",
+                      "https://github.community/foo/bar", "github.community/foo/bar", "mygithub.com/foo/bar"] {
             #expect(GitHubRepoRef(parsing: input) == nil, "should reject: \(input)")
         }
     }
