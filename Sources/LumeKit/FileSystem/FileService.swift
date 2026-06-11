@@ -15,12 +15,6 @@ public extension FileServicing {
 }
 
 public struct FileService: FileServicing {
-    /// Names that are never shown in the tree, even with "Show hidden" on —
-    /// pure noise the user never curates.
-    private static let ignoredNames: Set<String> = [
-        ".DS_Store", "node_modules", ".git", ".build", ".svn",
-    ]
-
     public init() {}
 
     public func enumerate(_ directory: URL, includeHidden: Bool) throws -> [FileNode] {
@@ -33,10 +27,7 @@ public struct FileService: FileServicing {
         )
         let nodes: [FileNode] = entries.compactMap { url in
             let name = url.lastPathComponent
-            if Self.ignoredNames.contains(name) { return nil }
-            // Hide dotfiles unless "Show hidden" is on. `.env*` stays visible
-            // either way (it's a curated config, not noise).
-            if !includeHidden, name.hasPrefix("."), name != ".env", !name.hasPrefix(".env.") { return nil }
+            guard TreeFilterRules.isVisible(name: name, includeHidden: includeHidden) else { return nil }
             let values = try? url.resourceValues(forKeys: Set(keys))
             let isSymlink = values?.isSymbolicLink ?? false
             // Symlinks are listed but NEVER treated as directories (matching

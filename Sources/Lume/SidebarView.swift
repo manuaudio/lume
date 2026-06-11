@@ -7,7 +7,11 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if app.rootURL != nil || !app.scans.isEmpty {
+            SourceSwitcherView()
+            Divider()
+            if app.showingRemote, app.remote != nil {
+                RemoteTreeView()
+            } else if app.rootURL != nil || !app.scans.isEmpty {
                 List {
                     ScansRegion()
                     BundlesRegion()
@@ -48,6 +52,7 @@ struct SidebarView: View {
         .sheet(isPresented: bindableApp.presentingMultiTag) { MultiTagSheet() }
         .sheet(isPresented: bindableApp.presentingTagManager) { TagManagerSheet() }
         .sheet(isPresented: bindableApp.presentingScanEditor) { NewScanSheet() }
+        .sheet(isPresented: bindableApp.presentingNewConnection) { NewConnectionSheet() }
     }
 
     private var bindableApp: Bindable<AppState> { Bindable(app) }

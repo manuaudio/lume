@@ -60,6 +60,8 @@ returning a feature set the earlier prototype had:
 - Tags + **GROUPS** (tags as virtual folders), pinning, display names, colorful tags
 - Dedicated viewers: PDF, image, source code, `.env`, YAML/TOML/JSON config, HTML
 - File management (create / rename / move / delete) with Undo, drag-to-tag / drag-to-pin
+- **SSH remote editing** *(shipped)* — connect to a host from the sidebar source
+  switcher, browse, and atomically edit remote text/config files
 - App Sandbox + signed distribution
 
 ## License

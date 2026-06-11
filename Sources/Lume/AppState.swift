@@ -67,6 +67,24 @@ final class AppState {
         configRawOverrides[path] = raw
     }
 
+    // MARK: - Remote source (SSH)
+
+    /// Live SSH session (nil when none). Kept while the user is back on Local
+    /// so the connection survives the round-trip; cleared by Disconnect.
+    var remote: RemoteSession?
+    /// Whether the sidebar shows the remote tree (vs the local regions).
+    private(set) var showingRemote = false
+    /// The open remote file's absolute path; nil whenever a local file is open.
+    private(set) var selectedRemotePath: String?
+    /// True while a remote save is in flight (detail pane shows an indicator).
+    private(set) var isRemoteSaving = false
+    /// "New SSH Connection…" sheet visibility.
+    var presentingNewConnection = false
+    /// Host aliases parsed from ~/.ssh/config (loaded lazily, once).
+    private(set) var sshConfigAliases: [String] = []
+    /// Manual connections + per-host last path / recent files (JSON-backed).
+    let connections = ConnectionStore()
+
     // MARK: - Multi-selection (Finder-style)
 
     /// The set of selected sidebar row ids (across all regions).
@@ -285,6 +303,7 @@ final class AppState {
         rootURL = url
         browseURL = url
         selectedURL = nil
+        selectedRemotePath = nil
         documentText = nil
         errorMessage = nil
         dismissNotice()
@@ -1331,6 +1350,7 @@ final class AppState {
     func choose(_ url: URL) {
         if activeBundle != nil { closeBundle() }
         if activeScan != nil { closeScan() }
+        selectedRemotePath = nil
         selectedURL = url
         loadTask?.cancel()
         loadTask = Task { await select(url) }
@@ -1380,6 +1400,7 @@ final class AppState {
     /// main actor (mirroring `TextDocument.load`) — an iCloud / slow-volume file
     /// can block a coordinated write arbitrarily long.
     func save() {
+        if let remotePath = selectedRemotePath { saveRemote(remotePath); return }
         guard let url = selectedURL, let text = documentText, isDirty else { return }
         Task {
             do {
@@ -1397,6 +1418,165 @@ final class AppState {
             } catch {
                 showNotice("Couldn't save \(url.lastPathComponent): \(error.localizedDescription)")
             }
+        }
+    }
+
+    // MARK: - Remote source (SSH) — lifecycle
+
+    /// Parse ~/.ssh/config (one level of Include) into the source-switcher list.
+    func loadSSHConfigAliases() {
+        guard sshConfigAliases.isEmpty else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let configURL = home.appendingPathComponent(".ssh/config")
+        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return }
+        sshConfigAliases = SSHConfigParser.aliases(configText: text) { includePath in
+            let expanded = NSString(string: includePath).expandingTildeInPath
+            let url = expanded.hasPrefix("/")
+                ? URL(fileURLWithPath: expanded)
+                : home.appendingPathComponent(".ssh").appendingPathComponent(expanded)
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+    }
+
+    func connectSSH(_ host: SSHHost) {
+        // Reconnecting to the already-active host just brings its tree back.
+        if let remote, remote.host.alias == host.alias {
+            showRemoteSource()
+            if case .failed = remote.phase { Task { await remote.connect() } }
+            return
+        }
+        let previous = remote
+        Task { await previous?.transport.disconnect() }
+        let session = RemoteSession(
+            host: host,
+            startPath: connections.state.hostState[host.alias]?.lastPath)
+        remote = session
+        showingRemote = true
+        clearDocumentSelection()
+        connections.noteConnected(alias: host.alias)
+        Task { await session.connect() }
+    }
+
+    func showLocalSource() {
+        guard showingRemote else { return }
+        showingRemote = false
+        clearDocumentSelection()
+    }
+
+    func showRemoteSource() {
+        guard remote != nil, !showingRemote else { return }
+        showingRemote = true
+        clearDocumentSelection()
+    }
+
+    func disconnectRemote() {
+        let session = remote
+        remote = nil
+        showingRemote = false
+        clearDocumentSelection()
+        Task { await session?.transport.disconnect() }
+    }
+
+    /// Reset the open-document state when crossing the local/remote boundary.
+    private func clearDocumentSelection() {
+        loadTask?.cancel()
+        selectedURL = nil
+        selectedRemotePath = nil
+        documentText = nil
+        loadedText = nil
+        isDirty = false
+        errorMessage = nil
+        // Also drop sidebar row selection: otherwise destructive shortcuts
+        // (⌘⌫ trash, ⌘D, rename) would still resolve stale LOCAL rows while
+        // the remote tree is showing.
+        clearSelection()
+    }
+
+    // MARK: - Remote source (SSH) — open / save
+
+    /// Open a remote file from the tree or recents (remote `choose`).
+    func chooseRemote(_ path: String) {
+        if activeBundle != nil { closeBundle() }
+        if activeScan != nil { closeScan() }
+        selectedURL = nil
+        selectedRemotePath = path
+        loadTask?.cancel()
+        loadTask = Task { await selectRemote(path) }
+    }
+
+    /// Remote sibling of `select(_:)` — same generation guard so a stale load
+    /// can't land in a newer selection's buffer.
+    func selectRemote(_ path: String) async {
+        guard let remote else { return }
+        let token = selectionGeneration.advance()
+        selectedRemotePath = path
+        errorMessage = nil
+        let name = (path as NSString).lastPathComponent
+        let kind = FileKind.detect(filename: name)
+        selectedKind = kind
+        let isConfig = ConfigRegistry.format(forFilename: name) != nil
+        guard Self.textEditableKinds.contains(kind) || isConfig else {
+            documentText = nil
+            loadedText = nil
+            isDirty = false
+            return
+        }
+        do {
+            let text = try await remote.source.read(path)
+            guard selectionGeneration.isCurrent(token), selectedRemotePath == path else { return }
+            documentText = text
+            loadedText = text
+            isDirty = false
+            connections.noteOpened(alias: remote.host.alias, file: path)
+        } catch {
+            guard selectionGeneration.isCurrent(token), selectedRemotePath == path else { return }
+            documentText = nil
+            loadedText = nil
+            errorMessage = (error as? SSHError)?.userMessage
+                ?? "Couldn't open \(name) over SSH."
+        }
+    }
+
+    /// Go-to-path: directory → re-root the tree; file → open it.
+    func goToRemotePath(_ raw: String) {
+        guard let remote else { return }
+        let path = raw.trimmingCharacters(in: .whitespaces)
+        guard path.hasPrefix("/") else {
+            showNotice("Enter an absolute remote path (starting with /).")
+            return
+        }
+        Task {
+            do {
+                let meta = try await remote.source.stat(path)
+                if meta.isDirectory {
+                    await remote.reroot(to: path)
+                    connections.noteBrowsed(alias: remote.host.alias, path: path)
+                } else {
+                    chooseRemote(path)
+                }
+            } catch {
+                showNotice((error as? SSHError)?.userMessage ?? "Couldn't open \(path).")
+            }
+        }
+    }
+
+    /// Remote save: async atomic write; on failure the buffer stays dirty so
+    /// nothing is lost. Mirrors `save()`'s in-flight-typing handling.
+    private func saveRemote(_ path: String) {
+        guard let remote, let text = documentText, isDirty, !isRemoteSaving else { return }
+        isRemoteSaving = true
+        Task {
+            do {
+                try await remote.source.write(text, to: path)
+                if selectedRemotePath == path {
+                    loadedText = text
+                    isDirty = (documentText != text)
+                }
+            } catch {
+                showNotice((error as? SSHError)?.userMessage
+                    ?? "Couldn't save \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+            }
+            isRemoteSaving = false
         }
     }
 }
