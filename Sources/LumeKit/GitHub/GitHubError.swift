@@ -10,7 +10,7 @@ public enum GitHubError: Error, Equatable, Sendable {
     case branchNotFound
     case notFound(path: String)
     case writeConflict(path: String)
-    case permissionDenied(path: String)
+    case permissionDenied
     case rateLimited
     case notUTF8(path: String)
     case network(detail: String)
@@ -58,7 +58,7 @@ public enum GitHubError: Error, Equatable, Sendable {
         if combined.contains("http 422"), combined.contains("sha") {
             return .writeConflict(path: path ?? "the file")
         }
-        if combined.contains("http 403") { return .permissionDenied(path: path ?? "the file") }
+        if combined.contains("http 403") { return .permissionDenied }
         if combined.contains("http 404") {
             if let path { return .notFound(path: path) }
             return .repoNotFound

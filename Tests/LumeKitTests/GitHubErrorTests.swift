@@ -39,7 +39,7 @@ struct GitHubErrorTests {
 
     @Test func permissionDenied() {
         #expect(map(stderr: "gh: Resource not accessible by integration (HTTP 403)", path: "/x")
-                == .permissionDenied(path: "/x"))
+                == .permissionDenied)
     }
 
     @Test func networkFailures() {
