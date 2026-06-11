@@ -88,9 +88,21 @@ public struct GitHubClient: Sendable {
     /// Throws `.notAuthenticated` unless `gh auth status` succeeds.
     public func checkAuth() async throws {
         guard let ghPath else { throw GitHubError.ghNotInstalled }
-        let result = try await runner.run(ghPath, ["auth", "status"], stdin: nil,
+        let result: CommandResult
+        do {
+            result = try await runner.run(ghPath, ["auth", "status"], stdin: nil,
                                           environment: Self.environment, timeout: 15)
-        guard result.exitCode == 0 else { throw GitHubError.notAuthenticated }
+        } catch SSHError.timeout {
+            // The subprocess seam's deadline error is SSH-domain; keep GitHub
+            // callers inside GitHubError.
+            throw GitHubError.network(detail: "gh timed out")
+        }
+        guard result.exitCode == 0 else {
+            let mapped = GitHubError.map(exitCode: result.exitCode, stdout: result.stdout,
+                                         stderr: result.stderr, path: nil)
+            if case .network = mapped { throw mapped }
+            throw GitHubError.notAuthenticated
+        }
     }
 
     public func repoInfo(slug: String) async throws -> GitHubRepoInfo {
@@ -111,26 +123,35 @@ public struct GitHubClient: Sendable {
         struct Raw: Decodable { let name: String; let type: String; let size: Int64; let sha: String }
         let data = try await api(Self.contentsEndpoint(slug: slug, path: path, ref: ref),
                                  path: path.isEmpty ? "/" : path)
+        let firstByte = data.first { !Set("\t\n\r ".utf8).contains($0) }
+        guard firstByte == UInt8(ascii: "[") else {
+            throw GitHubError.protocolFailure(detail: "\(path.isEmpty ? "/" : path) is not a directory")
+        }
         do {
             return try JSONDecoder().decode([Raw].self, from: data)
                 .map { GitHubDirEntry(name: $0.name, type: $0.type, size: $0.size, sha: $0.sha) }
         } catch {
-            throw GitHubError.protocolFailure(detail: "\(path.isEmpty ? "/" : path) is not a directory")
+            throw GitHubError.protocolFailure(detail: "unexpected GitHub response: \(error)")
         }
     }
 
     public func readFile(slug: String, path: String, ref: String?) async throws -> GitHubRemoteFile {
-        struct Raw: Decodable { let content: String?; let encoding: String?; let sha: String }
+        struct Raw: Decodable { let content: String?; let encoding: String?; let sha: String; let size: Int64? }
         let raw = try Self.decode(Raw.self, from: try await api(
             Self.contentsEndpoint(slug: slug, path: path, ref: ref), path: path))
         if raw.encoding == "base64", let content = raw.content, !content.isEmpty,
            let decoded = Data(base64Encoded: content.filter { !$0.isWhitespace }) {
             return GitHubRemoteFile(data: decoded, sha: raw.sha)
         }
+        if raw.size == 0 {
+            return GitHubRemoteFile(data: Data(), sha: raw.sha)   // empty file: nothing to fetch
+        }
         // Contents API truncates files >1 MB (encoding "none"): re-fetch the blob by sha.
+        // Generous deadline: this path exists for 1–100 MB files / slow links.
         struct Blob: Decodable { let content: String }
         let blob = try Self.decode(Blob.self,
-                                   from: try await api("repos/\(slug)/git/blobs/\(raw.sha)", path: path))
+                                   from: try await api("repos/\(slug)/git/blobs/\(raw.sha)", path: path,
+                                                       timeout: 120))
         guard let decoded = Data(base64Encoded: blob.content.filter { !$0.isWhitespace }) else {
             throw GitHubError.protocolFailure(detail: "undecodable blob for \(path)")
         }
@@ -150,8 +171,9 @@ public struct GitHubClient: Sendable {
             let content: C
             struct C: Decodable { let sha: String }
         }
+        // Generous deadline: this path exists for 1–100 MB files / slow links.
         let data = try await api("repos/\(slug)/contents/\(Self.encodePath(path))",
-                                 method: "PUT", body: body, path: path)
+                                 method: "PUT", body: body, path: path, timeout: 120)
         return try Self.decode(Resp.self, from: data).content.sha
     }
 
@@ -165,9 +187,16 @@ public struct GitHubClient: Sendable {
     public func listUserRepos() async throws -> [GitHubRepoSummary] {
         guard let ghPath else { throw GitHubError.ghNotInstalled }
         // Deliberate MVP cap at 200; arbitrary repos remain reachable via manual entry.
-        let result = try await runner.run(
-            ghPath, ["repo", "list", "--limit", "200", "--json", "nameWithOwner,isPrivate"],
-            stdin: nil, environment: Self.environment, timeout: 30)
+        let result: CommandResult
+        do {
+            result = try await runner.run(
+                ghPath, ["repo", "list", "--limit", "200", "--json", "nameWithOwner,isPrivate"],
+                stdin: nil, environment: Self.environment, timeout: 30)
+        } catch SSHError.timeout {
+            // The subprocess seam's deadline error is SSH-domain; keep GitHub
+            // callers inside GitHubError.
+            throw GitHubError.network(detail: "gh timed out")
+        }
         guard result.exitCode == 0 else {
             throw GitHubError.map(exitCode: result.exitCode, stdout: result.stdout,
                                   stderr: result.stderr, path: nil)
@@ -196,8 +225,15 @@ public struct GitHubClient: Sendable {
         var args = ["api", endpoint]
         if let method { args += ["--method", method] }
         if body != nil { args += ["--input", "-"] }
-        let result = try await runner.run(ghPath, args, stdin: body,
+        let result: CommandResult
+        do {
+            result = try await runner.run(ghPath, args, stdin: body,
                                           environment: Self.environment, timeout: timeout)
+        } catch SSHError.timeout {
+            // The subprocess seam's deadline error is SSH-domain; keep GitHub
+            // callers inside GitHubError.
+            throw GitHubError.network(detail: "gh timed out")
+        }
         guard result.exitCode == 0 else {
             throw GitHubError.map(exitCode: result.exitCode, stdout: result.stdout,
                                   stderr: result.stderr, path: path)
@@ -229,6 +265,6 @@ public struct GitHubClient: Sendable {
 
     private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do { return try JSONDecoder().decode(type, from: data) }
-        catch { throw GitHubError.protocolFailure(detail: "unexpected GitHub response") }
+        catch { throw GitHubError.protocolFailure(detail: "unexpected GitHub response: \(error)") }
     }
 }

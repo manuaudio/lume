@@ -147,4 +147,55 @@ struct GitHubClientTests {
             _ = try await makeClient(runner).repoInfo(slug: "o/missing")
         }
     }
+
+    @Test func emptyFileReadShortCircuitsWithoutBlobFetch() async throws {
+        let runner = FakeCommandRunner(results: [
+            FakeCommandRunner.ok(#"{"content":"","encoding":"base64","sha":"empty1","size":0}"#),
+        ])
+        let file = try await makeClient(runner).readFile(slug: "o/r", path: "empty.md", ref: nil)
+        #expect(file == GitHubRemoteFile(data: Data(), sha: "empty1"))
+        #expect(await runner.calls.count == 1)   // no blob round trip
+    }
+
+    @Test func largeFileAndWriteUseGenerousTimeout() async throws {
+        let b64 = Data("big".utf8).base64EncodedString()
+        let runner = FakeCommandRunner(results: [
+            FakeCommandRunner.ok(#"{"content":"","encoding":"none","sha":"bigsha","size":2000000}"#),
+            FakeCommandRunner.ok(#"{"content":"\#(b64)","encoding":"base64"}"#),
+            FakeCommandRunner.ok(#"{"content":{"sha":"new1"}}"#),
+        ])
+        let client = makeClient(runner)
+        _ = try await client.readFile(slug: "o/r", path: "big.md", ref: nil)
+        _ = try await client.writeFile(slug: "o/r", path: "big.md", content: Data("hi".utf8),
+                                       message: "Update big.md", sha: "bigsha", branch: "main")
+        #expect(await runner.calls[1].timeout == 120)   // blob fetch
+        #expect(await runner.calls[2].timeout == 120)   // PUT
+    }
+
+    @Test func timeoutsSurfaceInGitHubDomain() async {
+        let runner = FakeCommandRunner(results: [
+            .failure(SSHError.timeout(executable: "/fake/gh")),
+        ])
+        await #expect(throws: GitHubError.network(detail: "gh timed out")) {
+            _ = try await makeClient(runner).repoInfo(slug: "o/r")
+        }
+    }
+
+    @Test func checkAuthDistinguishesNetworkFromAuthFailure() async {
+        let runner = FakeCommandRunner(results: [
+            FakeCommandRunner.fail("dial tcp: lookup api.github.com: no such host"),
+        ])
+        await #expect(throws: GitHubError.network(detail: "dial tcp: lookup api.github.com: no such host")) {
+            try await makeClient(runner).checkAuth()
+        }
+    }
+
+    @Test func listDirectoryOnAFileSaysNotADirectory() async {
+        let runner = FakeCommandRunner(results: [
+            FakeCommandRunner.ok(#"{"name":"a.md","type":"file","size":1,"sha":"s"}"#),
+        ])
+        await #expect(throws: GitHubError.protocolFailure(detail: "docs/a.md is not a directory")) {
+            _ = try await makeClient(runner).listDirectory(slug: "o/r", path: "docs/a.md", ref: nil)
+        }
+    }
 }
