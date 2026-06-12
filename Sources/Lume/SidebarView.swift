@@ -53,6 +53,8 @@ struct SidebarView: View {
         .sheet(isPresented: bindableApp.presentingTagManager) { TagManagerSheet() }
         .sheet(isPresented: bindableApp.presentingScanEditor) { NewScanSheet() }
         .sheet(isPresented: bindableApp.presentingNewConnection) { NewConnectionSheet() }
+        .sheet(isPresented: bindableApp.presentingOpenGitHubRepo) { OpenGitHubRepoSheet() }
+        .sheet(isPresented: bindableApp.presentingRepoBrowser) { RepoBrowserSheet() }
     }
 
     private var bindableApp: Bindable<AppState> { Bindable(app) }
