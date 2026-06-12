@@ -80,6 +80,15 @@ final class AppState {
     private(set) var isRemoteSaving = false
     /// "New SSH Connection…" sheet visibility.
     var presentingNewConnection = false
+    /// "Open GitHub Repo…" sheet visibility.
+    var presentingOpenGitHubRepo = false
+    /// "Browse Your Repos…" picker visibility.
+    var presentingRepoBrowser = false
+    /// Non-nil when a remote save hit a write conflict; drives the
+    /// reload-or-keep-editing dialog (see DetailView).
+    var pendingConflictReloadPath: String?
+    /// Shared gh wrapper (stateless; auth lives in gh itself).
+    let githubClient = GitHubClient()
     /// Host aliases parsed from ~/.ssh/config (loaded lazily, once).
     private(set) var sshConfigAliases: [String] = []
     /// Manual connections + per-host last path / recent files (JSON-backed).
@@ -1458,6 +1467,42 @@ final class AppState {
         Task { await session.connect() }
     }
 
+    func connectGitHub(_ ref: GitHubRepoRef) {
+        // Re-picking the already-active repo just brings its tree back.
+        if let remote, remote.sourceID == .github(slug: ref.slug) {
+            showRemoteSource()
+            if case .failed = remote.phase { Task { await remote.connect() } }
+            return
+        }
+        let previous = remote
+        Task { await previous?.disconnect() }
+        let repoState = connections.state.githubRepos[ref.slug]
+        let connection = GitHubConnection(
+            ref: ref,
+            client: githubClient,
+            preferredBranch: repoState?.lastBranch,
+            startPath: repoState?.lastPath)
+        let session = RemoteSession(connection: connection, source: connection.source)
+        remote = session
+        showingRemote = true
+        clearDocumentSelection()
+        connections.noteRepoConnected(slug: ref.slug)
+        Task { await session.connect() }
+    }
+
+    /// Switch the active branch: clears the open document (its buffer and sha
+    /// belong to the old branch), re-roots the tree, records the choice.
+    func switchGitHubBranch(_ branch: String) {
+        guard let remote, let gh = remote.connection as? GitHubConnection,
+              branch != gh.activeBranch else { return }
+        clearDocumentSelection()
+        connections.noteRepoBranch(slug: gh.ref.slug, branch: branch)
+        Task {
+            await gh.setActiveBranch(branch)
+            await remote.reroot(to: "/")
+        }
+    }
+
     func showLocalSource() {
         guard showingRemote else { return }
         showingRemote = false
@@ -1565,7 +1610,8 @@ final class AppState {
         guard let remote else { return }
         switch remote.sourceID {
         case .ssh(let alias): connections.noteOpened(alias: alias, file: path)
-        default: break
+        case .github(let slug): connections.noteRepoOpened(slug: slug, file: path)
+        case .local: break
         }
     }
 
@@ -1574,7 +1620,8 @@ final class AppState {
         guard let remote else { return }
         switch remote.sourceID {
         case .ssh(let alias): connections.noteBrowsed(alias: alias, path: path)
-        default: break
+        case .github(let slug): connections.noteRepoBrowsed(slug: slug, path: path)
+        case .local: break
         }
     }
 
@@ -1583,7 +1630,8 @@ final class AppState {
         guard let remote else { return [] }
         switch remote.sourceID {
         case .ssh(let alias): return connections.state.hostState[alias]?.recentFiles ?? []
-        default: return []
+        case .github(let slug): return connections.state.githubRepos[slug]?.recentFiles ?? []
+        case .local: return []
         }
     }
 
@@ -1599,10 +1647,20 @@ final class AppState {
                     loadedText = text
                     isDirty = (documentText != text)
                 }
+            } catch GitHubError.writeConflict {
+                pendingConflictReloadPath = path
             } catch {
                 showNotice(remote.userMessage(for: error))
             }
             isRemoteSaving = false
         }
+    }
+
+    /// "Reload" from the conflict dialog: discard the local buffer and
+    /// re-read the remote version (which also re-captures the fresh sha).
+    func confirmConflictReload() {
+        guard let path = pendingConflictReloadPath else { return }
+        pendingConflictReloadPath = nil
+        chooseRemote(path)
     }
 }
