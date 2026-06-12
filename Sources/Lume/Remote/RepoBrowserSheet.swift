@@ -48,6 +48,7 @@ struct RepoBrowserSheet: View {
                                     Image(systemName: "lock.fill")
                                         .foregroundStyle(.secondary)
                                         .help("Private")
+                                        .accessibilityLabel("Private")
                                 }
                             }
                             .contentShape(Rectangle())
