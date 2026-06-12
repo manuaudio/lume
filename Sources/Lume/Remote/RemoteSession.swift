@@ -24,6 +24,9 @@ final class RemoteSession {
     var expanded: Set<String> = []
     /// In-flight loads (guards double-fetch from row `.task` + toggleExpand).
     @ObservationIgnored private var loading: Set<String> = []
+    /// Bumped by reroot: in-flight listings from a previous root/branch are
+    /// discarded instead of landing in the fresh tree.
+    @ObservationIgnored private var treeGeneration = 0
     /// Last non-fatal listing error (shown as a notice by the tree view).
     var lastError: String?
 
@@ -55,12 +58,19 @@ final class RemoteSession {
     }
 
     func loadChildren(of path: String) async {
-        guard !loading.contains(path) else { return }
-        loading.insert(path)
-        defer { loading.remove(path) }
+        // Key the in-flight guard by generation: a reroot must be able to
+        // re-list a path whose pre-reroot load is still in flight.
+        let key = "\(treeGeneration):\(path)"
+        guard !loading.contains(key) else { return }
+        loading.insert(key)
+        defer { loading.remove(key) }
+        let generation = treeGeneration
         do {
-            children[path] = try await source.list(path, includeHidden: false)
+            let nodes = try await source.list(path, includeHidden: false)
+            guard generation == treeGeneration else { return }   // re-rooted mid-flight
+            children[path] = nodes
         } catch {
+            guard generation == treeGeneration else { return }
             children[path] = []
             lastError = connection.userMessage(for: error)
         }
@@ -79,6 +89,7 @@ final class RemoteSession {
 
     /// Re-root the tree (go-to-path on a directory).
     func reroot(to path: String) async {
+        treeGeneration += 1
         rootPath = path
         expanded.removeAll()
         children.removeAll()

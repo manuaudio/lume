@@ -1532,6 +1532,8 @@ final class AppState {
         loadedText = nil
         isDirty = false
         errorMessage = nil
+        // A pending conflict belongs to the old document.
+        pendingConflictReloadPath = nil
         // Also drop sidebar row selection: otherwise destructive shortcuts
         // (⌘⌫ trash, ⌘D, rename) would still resolve stale LOCAL rows while
         // the remote tree is showing.
