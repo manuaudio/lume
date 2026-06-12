@@ -62,6 +62,17 @@ returning a feature set the earlier prototype had:
 - File management (create / rename / move / delete) with Undo, drag-to-tag / drag-to-pin
 - **SSH remote editing** *(shipped)* — connect to a host from the sidebar source
   switcher, browse, and atomically edit remote text/config files
+- **GitHub repo editing** *(shipped)* — see below
+
+### GitHub repos
+
+Open any GitHub repository from the source switcher (`owner/repo`, a pasted
+URL, or the Browse Your Repos picker — requires the [gh CLI](https://cli.github.com)
+signed in via `gh auth login`). Browse the repo tree, pick a branch, and edit
+text/config files with Lume's editors; ⌘S commits directly to the active
+branch ("Update <path>"). If the file changed on GitHub since you opened it,
+the save is rejected and Lume offers to reload — your edits are never silently
+lost, and neither are anyone else's.
 - App Sandbox + signed distribution
 
 ## License
