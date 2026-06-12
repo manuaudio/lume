@@ -8,6 +8,7 @@ actor FakeCommandRunner: CommandRunning {
         let executable: String
         let arguments: [String]
         let stdin: String?
+        let timeout: TimeInterval
     }
 
     private var queue: [Result<CommandResult, Error>]
@@ -28,7 +29,8 @@ actor FakeCommandRunner: CommandRunning {
     func run(_ executable: String, _ arguments: [String], stdin: Data?,
              environment: [String: String]?, timeout: TimeInterval) async throws -> CommandResult {
         calls.append(Call(executable: executable, arguments: arguments,
-                          stdin: stdin.map { String(decoding: $0, as: UTF8.self) }))
+                          stdin: stdin.map { String(decoding: $0, as: UTF8.self) },
+                          timeout: timeout))
         let next = queue.isEmpty ? nil : queue.removeFirst()
         switch next {
         case .success(let result): return result

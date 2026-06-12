@@ -1,10 +1,13 @@
 import Foundation
 
 /// Which backend a resource lives in. `.local` is the on-disk workspace;
-/// `.ssh` is a connected remote host (keyed by its alias/nickname).
+/// `.ssh` is a connected remote host (keyed by its alias/nickname);
+/// `.github` is a GitHub repository (keyed by "owner/repo"; the active
+/// branch is session state, not identity).
 public enum SourceID: Hashable, Sendable {
     case local
     case ssh(alias: String)
+    case github(slug: String)
 }
 
 /// Identifies a resource within some source — replaces "everything is a

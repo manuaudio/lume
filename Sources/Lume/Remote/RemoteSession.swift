@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import LumeKit
 
-/// One live SSH connection: its transport, file source, and the remote tree's
-/// UI state (root, expansion, lazily-loaded children).
+/// One live remote session: its backend connection, file source, and the
+/// remote tree's UI state (root, expansion, lazily-loaded children).
 @MainActor
 @Observable
 final class RemoteSession {
@@ -13,52 +13,66 @@ final class RemoteSession {
         case failed(String)
     }
 
-    let host: SSHHost
-    let transport: SSHTransport
-    let source: SSHFileSource
+    let connection: any RemoteConnection
+    let source: any FileSource
 
     var phase: Phase = .connecting
     /// The directory the tree is rooted at (resolved to absolute on connect).
-    var rootPath: String
+    var rootPath: String = "/"
     /// Lazily-loaded children per directory path; missing key = not loaded yet.
     private(set) var children: [String: [ResourceNode]] = [:]
     var expanded: Set<String> = []
     /// In-flight loads (guards double-fetch from row `.task` + toggleExpand).
     @ObservationIgnored private var loading: Set<String> = []
+    /// Bumped by reroot: in-flight listings from a previous root/branch are
+    /// discarded instead of landing in the fresh tree.
+    @ObservationIgnored private var treeGeneration = 0
     /// Last non-fatal listing error (shown as a notice by the tree view).
     var lastError: String?
 
-    init(host: SSHHost, startPath: String?) {
-        self.host = host
-        let transport = SSHTransport(host: host)
-        self.transport = transport
-        self.source = SSHFileSource(host: host, transport: transport)
-        self.rootPath = startPath ?? "."
+    var sourceID: SourceID { connection.sourceID }
+    var displayName: String { connection.displayName }
+
+    init(connection: any RemoteConnection, source: any FileSource) {
+        self.connection = connection
+        self.source = source
     }
 
     func connect() async {
         phase = .connecting
         do {
-            try await transport.connect()
-            if !rootPath.hasPrefix("/") {
-                rootPath = try await source.realpath(rootPath)   // "." → home dir
-            }
+            rootPath = try await connection.connect()
             phase = .ready
             await loadChildren(of: rootPath)
         } catch {
-            phase = .failed((error as? SSHError)?.userMessage ?? error.localizedDescription)
+            phase = .failed(connection.userMessage(for: error))
         }
     }
 
+    func disconnect() async {
+        await connection.disconnect()
+    }
+
+    func userMessage(for error: Error) -> String {
+        connection.userMessage(for: error)
+    }
+
     func loadChildren(of path: String) async {
-        guard !loading.contains(path) else { return }
-        loading.insert(path)
-        defer { loading.remove(path) }
+        // Key the in-flight guard by generation: a reroot must be able to
+        // re-list a path whose pre-reroot load is still in flight.
+        let key = "\(treeGeneration):\(path)"
+        guard !loading.contains(key) else { return }
+        loading.insert(key)
+        defer { loading.remove(key) }
+        let generation = treeGeneration
         do {
-            children[path] = try await source.list(path, includeHidden: false)
+            let nodes = try await source.list(path, includeHidden: false)
+            guard generation == treeGeneration else { return }   // re-rooted mid-flight
+            children[path] = nodes
         } catch {
+            guard generation == treeGeneration else { return }
             children[path] = []
-            lastError = (error as? SSHError)?.userMessage ?? error.localizedDescription
+            lastError = connection.userMessage(for: error)
         }
     }
 
@@ -75,6 +89,7 @@ final class RemoteSession {
 
     /// Re-root the tree (go-to-path on a directory).
     func reroot(to path: String) async {
+        treeGeneration += 1
         rootPath = path
         expanded.removeAll()
         children.removeAll()

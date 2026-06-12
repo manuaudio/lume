@@ -128,24 +128,41 @@ private struct DetailView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        if app.activeScan != nil {
-            ScanTriageView()
-        } else if app.activeBundle != nil {
-            BundleView()
-        } else if let message = app.errorMessage {
-            ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
-        } else if let remotePath = app.selectedRemotePath {
-            remoteViewer(forPath: remotePath)
-        } else if let url = app.selectedURL {
-            VStack(spacing: 0) {
-                if app.showEditorTags {
-                    DocumentTagBar(url: url)
-                    Divider()
+        Group {
+            if app.activeScan != nil {
+                ScanTriageView()
+            } else if app.activeBundle != nil {
+                BundleView()
+            } else if let message = app.errorMessage {
+                ContentUnavailableView("Can't Open", systemImage: "exclamationmark.triangle", description: Text(message))
+            } else if let remotePath = app.selectedRemotePath {
+                remoteViewer(forPath: remotePath)
+            } else if let url = app.selectedURL {
+                VStack(spacing: 0) {
+                    if app.showEditorTags {
+                        DocumentTagBar(url: url)
+                        Divider()
+                    }
+                    viewer(for: url)
                 }
-                viewer(for: url)
+            } else {
+                ContentUnavailableView("No File Selected", systemImage: "doc", description: Text("Pick a file in the sidebar."))
             }
-        } else {
-            ContentUnavailableView("No File Selected", systemImage: "doc", description: Text("Pick a file in the sidebar."))
+        }
+        .alert(
+            "File Changed on GitHub",
+            isPresented: Binding(
+                get: { app.pendingConflictReloadPath != nil },
+                set: { if !$0 { app.pendingConflictReloadPath = nil } }
+            ),
+            presenting: app.pendingConflictReloadPath
+        ) { path in
+            Button("Reload (Discard My Edits)", role: .destructive) {
+                app.confirmConflictReload(path)
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: { path in
+            Text("\((path as NSString).lastPathComponent) changed on GitHub since you opened it. Reload to get the latest version — your unsaved edits will be discarded. Keep editing to copy your changes out first.")
         }
     }
 
@@ -185,9 +202,9 @@ private struct DetailView: View {
                 if app.documentText != nil { EditorView() } else { loading }
             case .pdf, .image, .html, .quickLook:
                 ContentUnavailableView(
-                    "Text Only Over SSH",
-                    systemImage: "bolt.horizontal",
-                    description: Text("\(name) can't be previewed over SSH — only text and config files open remotely.")
+                    "Text Files Only",
+                    systemImage: "doc.text",
+                    description: Text("\(name) can't be previewed on a remote source — only text and config files open remotely.")
                 )
             }
         }

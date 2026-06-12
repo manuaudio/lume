@@ -13,7 +13,7 @@ struct RemoteTreeView: View {
                 switch remote.phase {
                 case .connecting:
                     Spacer()
-                    ProgressView("Connecting to \(remote.host.alias)…")
+                    ProgressView("Connecting to \(remote.displayName)…")
                         .controlSize(.small)
                     Spacer()
                 case .failed(let message):
@@ -29,6 +29,10 @@ struct RemoteTreeView: View {
                     }
                     Spacer()
                 case .ready:
+                    if let gh = remote.connection as? GitHubConnection {
+                        GitHubHeaderBar(connection: gh)
+                        Divider()
+                    }
                     goToBar
                     Divider()
                     List {
@@ -66,10 +70,7 @@ struct RemoteTreeView: View {
         }
     }
 
-    private var recentFiles: [String] {
-        guard let alias = app.remote?.host.alias else { return [] }
-        return app.connections.state.hostState[alias]?.recentFiles ?? []
-    }
+    private var recentFiles: [String] { app.remoteRecentFiles }
 
     private var goToBar: some View {
         HStack(spacing: 6) {
@@ -159,5 +160,54 @@ private struct RemoteNodeRow: View {
         }
         .padding(.leading, CGFloat(depth) * 14)
         .contentShape(Rectangle())
+    }
+}
+
+/// Branch picker + read-only badge for an active GitHub source.
+private struct GitHubHeaderBar: View {
+    @Environment(AppState.self) private var app
+    let connection: GitHubConnection
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Menu {
+                ForEach(connection.branches, id: \.self) { branch in
+                    Button {
+                        app.switchGitHubBranch(branch)
+                    } label: {
+                        if branch == connection.activeBranch {
+                            Label(branch, systemImage: "checkmark")
+                        } else {
+                            Text(branch)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.caption)
+                    Text(connection.activeBranch ?? "—")
+                        .font(.callout)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Commits go to this branch")
+
+            Spacer(minLength: 4)
+
+            if !connection.canPush {
+                Label("Read-only", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("You don't have push access — saves will fail.")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 }

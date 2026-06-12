@@ -18,7 +18,11 @@ struct SourceSwitcherView: View {
                     Button {
                         app.showRemoteSource()
                     } label: {
-                        Label(remote.host.alias, systemImage: "bolt.horizontal")
+                        Label(remote.displayName,
+                              systemImage: {
+                                  if case .github = remote.sourceID { return "arrow.triangle.branch" }
+                                  return "bolt.horizontal"
+                              }())
                     }
                 }
                 if !app.sshConfigAliases.isEmpty {
@@ -35,14 +39,25 @@ struct SourceSwitcherView: View {
                         }
                     }
                 }
+                if !app.connections.recentGitHubRepos.isEmpty {
+                    Section("GitHub") {
+                        ForEach(app.connections.recentGitHubRepos, id: \.self) { slug in
+                            Button(slug) {
+                                if let ref = GitHubRepoRef(parsing: slug) { app.connectGitHub(ref) }
+                            }
+                        }
+                    }
+                }
                 Divider()
                 Button("New SSH Connection…") { app.presentingNewConnection = true }
+                Button("Open GitHub Repo…") { app.presentingOpenGitHubRepo = true }
+                Button("Browse Your Repos…") { app.presentingRepoBrowser = true }
                 if app.remote != nil {
                     Button("Disconnect", role: .destructive) { app.disconnectRemote() }
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: app.showingRemote ? "bolt.horizontal.circle.fill" : "internaldrive")
+                    Image(systemName: switcherIcon)
                         .foregroundStyle(app.showingRemote ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     Text(title)
                         .font(.callout.weight(.medium))
@@ -64,13 +79,19 @@ struct SourceSwitcherView: View {
         .padding(.vertical, 6)
     }
 
+    private var switcherIcon: String {
+        guard app.showingRemote, let id = app.remote?.sourceID else { return "internaldrive" }
+        if case .github = id { return "arrow.triangle.branch" }
+        return "bolt.horizontal.circle.fill"
+    }
+
     private var localTitle: String {
         if let root = app.rootURL { return "Local — \(root.lastPathComponent)" }
         return "Local"
     }
 
     private var title: String {
-        if app.showingRemote, let remote = app.remote { return remote.host.alias }
+        if app.showingRemote, let remote = app.remote { return remote.displayName }
         return localTitle
     }
 
