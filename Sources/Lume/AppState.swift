@@ -1650,7 +1650,11 @@ final class AppState {
                     isDirty = (documentText != text)
                 }
             } catch GitHubError.writeConflict {
-                pendingConflictReloadPath = path
+                // Only raise the dialog if the conflicted file is still open —
+                // a late-landing conflict for a closed file would be confusing.
+                if selectedRemotePath == path {
+                    pendingConflictReloadPath = path
+                }
             } catch {
                 showNotice(remote.userMessage(for: error))
             }

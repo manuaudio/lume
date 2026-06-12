@@ -15,6 +15,7 @@
 2. Two error cases beyond the spec's table: `notFound(path:)` (file-level 404, e.g. file deleted remotely mid-session) and `notUTF8(path:)` (binary file → routes to the existing "Can't Open" pane, same as SSH).
 3. Branch list capped at one page of 100 (`per_page=100`, no `--paginate`); repo browser capped at 200 (`gh repo list --limit 200`). Both are commented in code.
 4. Task 1 (the remote-layer generalization) has no new unit tests — `RemoteSession`/`AppState` live in the app target, which has no test bundle (same as the SSH MVP's UI tasks). The full existing LumeKit suite + a clean build are the regression net.
+5. *(post-implementation)* `branchNotFound` mid-session shows the error notice only — the spec's "branch menu refreshes; fall back to default branch" exists at connect time, not mid-session. A rate-limited listing renders an empty directory + notice rather than the spec's "tree unchanged" (the pre-existing SSH listing-error pattern).
 
 **Build/test commands** (used throughout; run from repo root):
 
