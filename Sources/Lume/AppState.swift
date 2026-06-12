@@ -1660,8 +1660,9 @@ final class AppState {
 
     /// "Reload" from the conflict dialog: discard the local buffer and
     /// re-read the remote version (which also re-captures the fresh sha).
-    func confirmConflictReload() {
-        guard let path = pendingConflictReloadPath else { return }
+    /// Takes the path captured at presentation time — the pending state may
+    /// already be cleared by the alert's dismissal binding.
+    func confirmConflictReload(_ path: String) {
         pendingConflictReloadPath = nil
         chooseRemote(path)
     }

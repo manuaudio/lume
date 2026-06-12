@@ -154,15 +154,15 @@ private struct DetailView: View {
             isPresented: Binding(
                 get: { app.pendingConflictReloadPath != nil },
                 set: { if !$0 { app.pendingConflictReloadPath = nil } }
-            )
-        ) {
+            ),
+            presenting: app.pendingConflictReloadPath
+        ) { path in
             Button("Reload (Discard My Edits)", role: .destructive) {
-                app.confirmConflictReload()
+                app.confirmConflictReload(path)
             }
             Button("Keep Editing", role: .cancel) {}
-        } message: {
-            let name = ((app.pendingConflictReloadPath ?? "") as NSString).lastPathComponent
-            Text("\(name) changed on GitHub since you opened it. Reload to get the latest version — your unsaved edits will be discarded. Keep editing to copy your changes out first.")
+        } message: { path in
+            Text("\((path as NSString).lastPathComponent) changed on GitHub since you opened it. Reload to get the latest version — your unsaved edits will be discarded. Keep editing to copy your changes out first.")
         }
     }
 
