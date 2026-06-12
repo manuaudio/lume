@@ -11,3 +11,6 @@ build/
 
 # Superpowers brainstorming companion
 .superpowers/
+
+# agent-tooling crumbs (machine-local)
+.claude/
