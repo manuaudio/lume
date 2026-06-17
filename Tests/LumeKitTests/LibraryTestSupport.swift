@@ -11,13 +11,13 @@ import SwiftData
 // helper — hence the lifetime is pinned at call sites rather than changing the
 // `LibraryStore(context:)` public API.
 //
-// The container registers the FULL versioned schema (LumeSchemaV1), never a
+// The container registers the FULL versioned schema (LumeSchemaV2), never a
 // subset: per-file model subsets are what let three helpers drift apart, and
 // the app never runs against a partial schema anyway.
 @MainActor
 func makeLibrary() throws -> (store: LibraryStore, container: ModelContainer) {
     let container = try ModelContainer(
-        for: Schema(versionedSchema: LumeSchemaV1.self),
+        for: Schema(versionedSchema: LumeSchemaV2.self),
         configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
     )
     return (LibraryStore(context: container.mainContext), container)

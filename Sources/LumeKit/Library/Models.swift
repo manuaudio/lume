@@ -68,3 +68,31 @@ import SwiftData
         self.tags = tags
     }
 }
+
+/// A favorite that lives on a remote source (SSH host or GitHub repo). Kept in
+/// its own table — not folded into `Favorite` — because `Favorite.path` is the
+/// unique key and is interpreted as a LOCAL filesystem path throughout the
+/// favorites renderer, and two hosts can legitimately pin the same path string.
+/// `ref` is the dedup key; the component fields are stored separately so nothing
+/// has to parse `ref` back.
+@Model public final class RemoteFavorite {
+    @Attribute(.unique) public var ref: String   // "ssh:web1:/etc/x" | "github:owner/repo:/docs/a.md"
+    public var sourceKindRaw: String              // "ssh" | "github"
+    public var sourceKey: String                  // host alias | repo slug
+    public var path: String                       // remote path
+    public var isDirectory: Bool                  // folder → reroot tree; file → open
+    public var dateAdded: Date
+    /// Shared ordering space with `Favorite.sortIndex` (the merged sidebar list).
+    public var sortIndex: Int
+
+    public init(ref: String, sourceKindRaw: String, sourceKey: String, path: String,
+                isDirectory: Bool, dateAdded: Date = .now, sortIndex: Int = 0) {
+        self.ref = ref
+        self.sourceKindRaw = sourceKindRaw
+        self.sourceKey = sourceKey
+        self.path = path
+        self.isDirectory = isDirectory
+        self.dateAdded = dateAdded
+        self.sortIndex = sortIndex
+    }
+}
