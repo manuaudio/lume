@@ -73,6 +73,14 @@ text/config files with Lume's editors; ⌘S commits directly to the active
 branch ("Update <path>"). If the file changed on GitHub since you opened it,
 the save is rejected and Lume offers to reload — your edits are never silently
 lost, and neither are anyone else's.
+
+### One Favorites list for every source
+
+Pin local files, SSH paths, and GitHub repo files into a single Favorites
+list. Remote favorites carry a small source badge (⚡ host for SSH, branch icon
++ repo for GitHub); clicking one connects to its source if needed and opens the
+file — or reroots the tree, for a pinned folder. Right-click any remote tree
+row to Add/Remove from Favorites. Favorites persist locally (no server sync).
 - App Sandbox + signed distribution
 
 ## License
