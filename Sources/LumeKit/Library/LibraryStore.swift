@@ -93,6 +93,49 @@ public final class LibraryStore {
         return try? context.fetch(d).first
     }
 
+    // MARK: Remote favorites (SSH / GitHub)
+
+    public func addRemoteFavorite(ref: String, sourceKind: String, sourceKey: String,
+                                  path: String, isDirectory: Bool) {
+        if remoteFavorite(for: ref) != nil { return }
+        let order = favorites().count + remoteFavorites().count
+        context.insert(RemoteFavorite(ref: ref, sourceKindRaw: sourceKind, sourceKey: sourceKey,
+                                      path: path, isDirectory: isDirectory, sortIndex: order))
+        save("addRemoteFavorite")
+    }
+
+    public func removeRemoteFavorite(ref: String) {
+        if let fav = remoteFavorite(for: ref) { context.delete(fav); save("removeRemoteFavorite") }
+    }
+
+    public func isRemoteFavorite(ref: String) -> Bool {
+        remoteFavorite(for: ref) != nil
+    }
+
+    public func remoteFavorites() -> [RemoteFavorite] {
+        (try? context.fetch(
+            FetchDescriptor<RemoteFavorite>(sortBy: [SortDescriptor(\.sortIndex), SortDescriptor(\.dateAdded)])
+        )) ?? []
+    }
+
+    private func remoteFavorite(for ref: String) -> RemoteFavorite? {
+        var d = FetchDescriptor<RemoteFavorite>(predicate: #Predicate { $0.ref == ref })
+        d.fetchLimit = 1
+        return try? context.fetch(d).first
+    }
+
+    /// Rewrite the single shared `sortIndex` space across BOTH favorite tables so
+    /// local and remote rows interleave in the given order (drag-reorder backing).
+    public func reorderAllFavorites(_ ordered: [FavoriteRef]) {
+        for (i, item) in ordered.enumerated() {
+            switch item {
+            case .local(let path): favorite(for: path)?.sortIndex = i
+            case .remote(let ref): remoteFavorite(for: ref)?.sortIndex = i
+            }
+        }
+        save("reorderAllFavorites")
+    }
+
     // MARK: Bookmarks (legacy — model retained for schema compatibility only)
 
     /// One-time migration: every bookmarked folder becomes a folder `Favorite`
@@ -101,8 +144,8 @@ public final class LibraryStore {
     ///
     /// This is the ONLY remaining `Bookmark` API — the CRUD surface (add/reorder/
     /// remove/isBookmarked/bookmarks) was dead code and is gone. The `@Model`
-    /// itself stays in `LumeSchemaV1` so existing stores keep opening; it gets
-    /// dropped in a future `LumeSchemaV2` migration stage.
+    /// itself stays in the schema (V1 and V2) so existing stores keep opening; it
+    /// gets dropped in a future schema version's migration stage.
     @discardableResult
     public func migrateBookmarksToFavorites() -> Int {
         let existing = (try? context.fetch(
@@ -466,4 +509,11 @@ public final class LibraryStore {
         context.delete(bundle)
         save("removeBundle")
     }
+}
+
+/// One row's identity in the merged Favorites list — a local path or a remote
+/// favorite `ref`. Used by `reorderAllFavorites`.
+public enum FavoriteRef: Hashable, Sendable {
+    case local(path: String)
+    case remote(ref: String)
 }
