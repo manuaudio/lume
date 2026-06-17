@@ -122,7 +122,10 @@ public final class FavoritesSyncEngine {
         // Manual hosts: upsert desired (tilde expanded for this Mac), remove the rest.
         let desiredHosts = merged.manualHosts.filter { !$0.deleted }
         let desiredAliases = Set(desiredHosts.map(\.alias))
-        let currentByAlias = Dictionary(uniqueKeysWithValues: connections.state.manualHosts.map { ($0.alias, $0) })
+        // last-wins on a duplicate alias rather than trapping (ConnectionStore
+        // dedupes today, but a merge must never crash on unexpected input).
+        let currentByAlias = Dictionary(connections.state.manualHosts.map { ($0.alias, $0) },
+                                        uniquingKeysWith: { _, new in new })
         for rec in desiredHosts {
             let host = SSHHost(alias: rec.alias, hostname: rec.hostname, user: rec.user,
                                port: rec.port, identityFile: Self.tildeExpanded(rec.identityFile))
