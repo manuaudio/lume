@@ -93,6 +93,8 @@ final class AppState {
     private(set) var sshConfigAliases: [String] = []
     /// Manual connections + per-host last path / recent files (JSON-backed).
     let connections = ConnectionStore()
+    /// Cross-machine favorites sync (iCloud); nil until the library attaches.
+    private(set) var favoritesSync: FavoritesSyncEngine?
 
     // MARK: - Multi-selection (Finder-style)
 
@@ -264,6 +266,11 @@ final class AppState {
         self.library = library
         library.migrateBookmarksToFavorites()
         refreshLibrary()
+        let engine = FavoritesSyncEngine(
+            library: library, connections: connections, store: UbiquityDocumentStore.make())
+        engine.onApplied = { [weak self] in self?.refreshLibrary() }
+        favoritesSync = engine
+        engine.start()
     }
 
     /// Surface a degraded store-health banner. Called by LumeApp AFTER launch
@@ -649,12 +656,14 @@ final class AppState {
                                       path: node.ref.path, isDirectory: node.isDirectory)
         }
         refreshLibrary()
+        favoritesSync?.scheduleSync()
     }
 
     /// Unpin a remote favorite directly (from its sidebar row).
     func removeRemoteFavorite(_ fav: RemoteFavorite) {
         library?.removeRemoteFavorite(ref: fav.ref)
         refreshLibrary()
+        favoritesSync?.scheduleSync()
     }
 
     /// Open a remote favorite: connect to its source if needed, then open the

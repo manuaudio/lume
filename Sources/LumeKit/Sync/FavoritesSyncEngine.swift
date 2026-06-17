@@ -21,6 +21,8 @@ public final class FavoritesSyncEngine {
     /// an applied change can't re-stamp and ping-pong.
     @ObservationIgnored private var isApplying = false
     @ObservationIgnored private var debounce: Task<Void, Never>?
+    @ObservationIgnored private var metadataQuery: NSMetadataQuery?
+    @ObservationIgnored private var queryObserver: NSObjectProtocol?
 
     public init(library: LibraryStore, connections: ConnectionStore,
                 store: any SyncDocumentStore, now: @escaping () -> Date = Date.init) {
@@ -52,6 +54,33 @@ public final class FavoritesSyncEngine {
         apply(merged)
         try? store.writeShared(merged)
         store.writeBaseline(merged)
+    }
+
+    /// Begin watching the ubiquity container for changes pushed from another Mac,
+    /// and run an initial sync. No-op when iCloud is unavailable.
+    public func start() {
+        guard store.isAvailable else { return }
+        sync()   // pull anything already waiting
+
+        let query = NSMetadataQuery()
+        query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
+        query.predicate = NSPredicate(format: "%K LIKE %@",
+                                      NSMetadataItemFSNameKey, "favorites-sync.json")
+        queryObserver = NotificationCenter.default.addObserver(
+            forName: .NSMetadataQueryDidUpdate, object: query, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sync() }
+        }
+        metadataQuery = query
+        query.start()
+    }
+
+    public func stop() {
+        metadataQuery?.stop()
+        metadataQuery = nil
+        if let queryObserver { NotificationCenter.default.removeObserver(queryObserver) }
+        queryObserver = nil
+        debounce?.cancel()
     }
 
     // MARK: - Local projection
