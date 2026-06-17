@@ -128,6 +128,7 @@ private struct RemoteNodeRow: View {
                         chevron: remote.expanded.contains(node.ref.path) ? "chevron.down" : "chevron.right")
                 }
                 .buttonStyle(.plain)
+                .contextMenu { pinMenuButton }
                 if remote.expanded.contains(node.ref.path) {
                     RemoteChildrenRows(directory: node.ref.path, depth: depth + 1)
                 }
@@ -138,7 +139,15 @@ private struct RemoteNodeRow: View {
                     row(systemImage: node.isSymlink ? "link" : "doc", chevron: nil)
                 }
                 .buttonStyle(.plain)
+                .contextMenu { pinMenuButton }
             }
+        }
+    }
+
+    /// Pin/unpin this node to the global Favorites list.
+    @ViewBuilder private var pinMenuButton: some View {
+        Button(app.isRemoteFavorite(node) ? "Remove from Favorites" : "Add to Favorites") {
+            app.toggleRemoteFavorite(node)
         }
     }
 

@@ -416,8 +416,8 @@ private struct FavoritesRegion: View {
 
     var body: some View {
         Section("Favorites") {
-            let items = app.favoriteRowItems
-            if items.isEmpty {
+            let rows = app.mergedFavoriteRows
+            if rows.isEmpty {
                 Text("Pin files and folders here — or drag them in")
                     .font(.callout)
                     .foregroundStyle(dropTargeted ? .primary : .tertiary)
@@ -427,8 +427,11 @@ private struct FavoritesRegion: View {
                         app.pinDropped(urls); return !urls.isEmpty
                     } isTargeted: { dropTargeted = $0 }
             } else {
-                ForEach(items) { item in
-                    FavoriteRow(item: item)
+                ForEach(rows) { row in
+                    switch row {
+                    case .local(let item): FavoriteRow(item: item)
+                    case .remote(let fav): RemoteFavoriteRow(fav: fav)
+                    }
                 }
             }
         }
