@@ -125,6 +125,7 @@ final class AppState {
 
     private(set) var library: LibraryStore?
     private(set) var favorites: [Favorite] = []
+    private(set) var remoteFavorites: [RemoteFavorite] = []
     private(set) var tags: [Tag] = []
     private(set) var hiddenPaths: Set<String> = []
     private(set) var scans: [Scan] = []
@@ -284,6 +285,7 @@ final class AppState {
     func refreshLibrary() {
         guard let library else { return }
         favorites = library.favorites()
+        remoteFavorites = library.remoteFavorites()
         tags = library.allTags()
         hiddenPaths = library.hiddenPaths()
         scans = library.scans()
@@ -536,6 +538,64 @@ final class AppState {
         return out
     }
 
+    /// A row in the MERGED Favorites list: a local row (pin root or expanded
+    /// child, unchanged behavior) or a remote favorite (leaf jump-point).
+    enum FavoriteRow: Identifiable {
+        case local(FavoriteRowItem)
+        case remote(RemoteFavorite)
+        var id: String {
+            switch self {
+            case .local(let i): return "L:\(i.id)"
+            case .remote(let r): return "R:\(r.ref)"
+            }
+        }
+    }
+
+    /// Top-level ordering token so local pin roots and remote favorites
+    /// interleave by their shared `sortIndex`.
+    private enum FavoriteTop {
+        case local(Favorite)
+        case remote(RemoteFavorite)
+        var sortIndex: Int {
+            switch self {
+            case .local(let f): return f.sortIndex
+            case .remote(let r): return r.sortIndex
+            }
+        }
+    }
+
+    /// The merged Favorites rows: local pin roots (with their inline-expanded
+    /// children, exactly as today) and remote favorites, interleaved by sortIndex.
+    var mergedFavoriteRows: [FavoriteRow] {
+        _ = cache.revision
+        var tops: [FavoriteTop] =
+            visibleFavorites.map(FavoriteTop.local) + remoteFavorites.map(FavoriteTop.remote)
+        tops.sort { $0.sortIndex < $1.sortIndex }
+
+        var out: [FavoriteRow] = []
+        func walk(_ dir: URL, _ depth: Int) {
+            for node in visiblePinnedChildren(of: dir) {
+                out.append(.local(FavoriteRowItem(url: node.url, isDirectory: node.isDirectory,
+                                                  depth: depth, isPinRoot: false)))
+                if node.isDirectory, expandedFavorites.contains(node.url.path) {
+                    walk(node.url, depth + 1)
+                }
+            }
+        }
+        for top in tops {
+            switch top {
+            case .local(let fav):
+                let url = URL(fileURLWithPath: fav.path)
+                let isDir = favoriteIsFolder(fav)
+                out.append(.local(FavoriteRowItem(url: url, isDirectory: isDir, depth: 0, isPinRoot: true)))
+                if isDir, expandedFavorites.contains(fav.path) { walk(url, 1) }
+            case .remote(let r):
+                out.append(.remote(r))
+            }
+        }
+        return out
+    }
+
     func isFavoriteExpanded(_ url: URL) -> Bool { expandedFavorites.contains(url.path) }
 
     func toggleFavoriteExpanded(_ url: URL) {
@@ -559,6 +619,67 @@ final class AppState {
             }
         }
         refreshLibrary()
+    }
+
+    // MARK: - Remote favorites (pin any-source)
+
+    /// (kind, key, ref) for a path on the ACTIVE remote source, or nil if no
+    /// remote source is active. `ref` is the dedup key the store stores.
+    private func remoteRefComponents(path: String) -> (kind: String, key: String, ref: String)? {
+        guard let id = remote?.sourceID else { return nil }
+        switch id {
+        case .ssh(let alias):  return ("ssh", alias, "ssh:\(alias):\(path)")
+        case .github(let slug): return ("github", slug, "github:\(slug):\(path)")
+        case .local: return nil
+        }
+    }
+
+    func isRemoteFavorite(_ node: ResourceNode) -> Bool {
+        guard let library, let c = remoteRefComponents(path: node.ref.path) else { return false }
+        return library.isRemoteFavorite(ref: c.ref)
+    }
+
+    /// Pin/unpin a remote tree node to the global Favorites list.
+    func toggleRemoteFavorite(_ node: ResourceNode) {
+        guard let library, let c = remoteRefComponents(path: node.ref.path) else { return }
+        if library.isRemoteFavorite(ref: c.ref) {
+            library.removeRemoteFavorite(ref: c.ref)
+        } else {
+            library.addRemoteFavorite(ref: c.ref, sourceKind: c.kind, sourceKey: c.key,
+                                      path: node.ref.path, isDirectory: node.isDirectory)
+        }
+        refreshLibrary()
+    }
+
+    /// Unpin a remote favorite directly (from its sidebar row).
+    func removeRemoteFavorite(_ fav: RemoteFavorite) {
+        library?.removeRemoteFavorite(ref: fav.ref)
+        refreshLibrary()
+    }
+
+    /// Open a remote favorite: connect to its source if needed, then open the
+    /// file (or reroot the tree for a folder). Reuses the SSH/GitHub lifecycle.
+    func openRemoteFavorite(_ fav: RemoteFavorite) {
+        let open: () -> Void = { [weak self] in
+            guard let self else { return }
+            if fav.isDirectory {
+                Task { await self.remote?.reroot(to: fav.path) }
+            } else {
+                self.chooseRemote(fav.path)
+            }
+        }
+        switch fav.sourceKindRaw {
+        case "ssh":
+            connectSSH(SSHHost(alias: fav.sourceKey), onReady: open)
+        case "github":
+            guard let ref = GitHubRepoRef(parsing: fav.sourceKey) else {
+                showNotice("Can't open favorite: invalid repo \(fav.sourceKey).")
+                return
+            }
+            connectGitHub(ref, onReady: open)
+        default:
+            break
+        }
     }
 
     // MARK: - Tags & GROUPS
@@ -1447,11 +1568,26 @@ final class AppState {
         }
     }
 
-    func connectSSH(_ host: SSHHost) {
+    func connectSSH(_ host: SSHHost, onReady: (() -> Void)? = nil) {
         // Reconnecting to the already-active host just brings its tree back.
         if let remote, remote.sourceID == .ssh(alias: host.alias) {
             showRemoteSource()
-            if case .failed = remote.phase { Task { await remote.connect() } }
+            switch remote.phase {
+            case .ready:
+                onReady?()
+            case .failed:
+                // Clicking a failed source retries (pre-existing behavior).
+                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
+            case .connecting:
+                // A connect is already in flight. For a plain re-select, leave it
+                // alone. When a favorite open is waiting, drive a second connect
+                // (cheap — SSH reuses the established ControlMaster) and fire when
+                // it reaches ready; the single-fire callback means the in-flight
+                // connect can't double-open, and we never fire before ready.
+                if let onReady {
+                    Task { await remote.connect(); if remote.phase == .ready { onReady() } }
+                }
+            }
             return
         }
         let previous = remote
@@ -1464,14 +1600,29 @@ final class AppState {
         showingRemote = true
         clearDocumentSelection()
         connections.noteConnected(alias: host.alias)
-        Task { await session.connect() }
+        Task { await session.connect(); if session.phase == .ready { onReady?() } }
     }
 
-    func connectGitHub(_ ref: GitHubRepoRef) {
+    func connectGitHub(_ ref: GitHubRepoRef, onReady: (() -> Void)? = nil) {
         // Re-picking the already-active repo just brings its tree back.
         if let remote, remote.sourceID == .github(slug: ref.slug) {
             showRemoteSource()
-            if case .failed = remote.phase { Task { await remote.connect() } }
+            switch remote.phase {
+            case .ready:
+                onReady?()
+            case .failed:
+                // Clicking a failed source retries (pre-existing behavior).
+                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
+            case .connecting:
+                // A connect is already in flight. For a plain re-select, leave it
+                // alone. When a favorite open is waiting, drive a second connect
+                // (cheap — gh calls are stateless) and fire when it reaches ready;
+                // the single-fire callback means the in-flight connect can't
+                // double-open, and we never fire before ready.
+                if let onReady {
+                    Task { await remote.connect(); if remote.phase == .ready { onReady() } }
+                }
+            }
             return
         }
         let previous = remote
@@ -1487,7 +1638,7 @@ final class AppState {
         showingRemote = true
         clearDocumentSelection()
         connections.noteRepoConnected(slug: ref.slug)
-        Task { await session.connect() }
+        Task { await session.connect(); if session.phase == .ready { onReady?() } }
     }
 
     /// Switch the active branch: clears the open document (its buffer and sha

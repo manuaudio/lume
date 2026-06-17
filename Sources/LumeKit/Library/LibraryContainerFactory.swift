@@ -25,7 +25,7 @@ public enum LibraryContainerFactory {
 
     /// `storeURL` overrides the default Application Support location (tests).
     public static func make(at storeURL: URL? = nil) -> (container: ModelContainer, health: StoreHealth) {
-        let schema = Schema(versionedSchema: LumeSchemaV1.self)
+        let schema = Schema(versionedSchema: LumeSchemaV2.self)
         let config: ModelConfiguration = if let storeURL {
             ModelConfiguration(schema: schema, url: storeURL)
         } else {

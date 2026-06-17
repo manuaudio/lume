@@ -92,6 +92,48 @@ struct FavoriteRow: View {
     }
 }
 
+/// A favorite that lives on a remote source — a leaf jump-point with a source
+/// badge (⚡ host for SSH, branch icon + slug for GitHub). Clicking connects to
+/// the source if needed, then opens the file (or reroots the tree for a folder).
+struct RemoteFavoriteRow: View {
+    let fav: RemoteFavorite
+    @Environment(AppState.self) private var app
+
+    private var badgeIcon: String {
+        fav.sourceKindRaw == "github" ? "arrow.triangle.branch" : "bolt.horizontal"
+    }
+    private var filename: String { (fav.path as NSString).lastPathComponent }
+
+    var body: some View {
+        Button { app.openRemoteFavorite(fav) } label: {
+            HStack(spacing: 6) {
+                Color.clear.frame(width: 12)   // align with local rows' chevron gutter
+                Image(systemName: fav.isDirectory
+                      ? "folder.fill"
+                      : symbolName(for: FileKind.detect(filename: filename)))
+                    .foregroundStyle(fav.isDirectory ? Color.accentColor : .secondary)
+                    .frame(width: 16)
+                Text(filename)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Label(fav.sourceKey, systemImage: badgeIcon)
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Remove from Favorites") { app.removeRemoteFavorite(fav) }
+        }
+    }
+}
+
 /// Shared row label: icon + display name (+ optional pin / chevron markers).
 struct RowLabel: View {
     let url: URL
