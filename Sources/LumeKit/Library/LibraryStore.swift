@@ -53,7 +53,7 @@ public final class LibraryStore {
 
     public func addFavorite(path: String, kind: FileKind) {
         if favorite(for: path) != nil { return }
-        context.insert(Favorite(path: path, kindRaw: String(describing: kind), sortIndex: favorites().count))
+        context.insert(Favorite(path: path, kindRaw: String(describing: kind), sortIndex: nextFavoriteSortIndex()))
         save("addFavorite")
     }
 
@@ -61,8 +61,15 @@ public final class LibraryStore {
     /// sentinel raw value and branch on it (and on-disk `isDirectory`) at render.
     public func addFavoriteFolder(path: String) {
         if favorite(for: path) != nil { return }
-        context.insert(Favorite(path: path, kindRaw: "folder", sortIndex: favorites().count))
+        context.insert(Favorite(path: path, kindRaw: "folder", sortIndex: nextFavoriteSortIndex()))
         save("addFavoriteFolder")
+    }
+
+    /// The next index in the SHARED local+remote `sortIndex` space, so a new pin
+    /// of either kind appends after every existing favorite (no ties in the
+    /// merged sidebar list).
+    private func nextFavoriteSortIndex() -> Int {
+        favorites().count + remoteFavorites().count
     }
 
     /// Persist a new ordering for favorites (drag-to-reorder).
@@ -98,9 +105,9 @@ public final class LibraryStore {
     public func addRemoteFavorite(ref: String, sourceKind: String, sourceKey: String,
                                   path: String, isDirectory: Bool) {
         if remoteFavorite(for: ref) != nil { return }
-        let order = favorites().count + remoteFavorites().count
         context.insert(RemoteFavorite(ref: ref, sourceKindRaw: sourceKind, sourceKey: sourceKey,
-                                      path: path, isDirectory: isDirectory, sortIndex: order))
+                                      path: path, isDirectory: isDirectory,
+                                      sortIndex: nextFavoriteSortIndex()))
         save("addRemoteFavorite")
     }
 

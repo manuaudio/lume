@@ -41,6 +41,23 @@ import SwiftData
     #expect(store.remoteFavorites().count == 2)
 }
 
+@MainActor @Test func mixedPinsGetDistinctSharedSortIndices() throws {
+    let (store, container) = try makeLibrary()
+    defer { withExtendedLifetime(container) {} }
+    // Interleave local and remote pins: every new pin must append after all
+    // existing ones in the shared space — no ties (which would scramble the
+    // merged sidebar order across relaunches).
+    store.addFavorite(path: "/a.md", kind: .markdown)                                // 0
+    store.addRemoteFavorite(ref: "ssh:web1:/r", sourceKind: "ssh",
+                            sourceKey: "web1", path: "/r", isDirectory: false)        // 1
+    store.addFavorite(path: "/b.md", kind: .markdown)                                // 2
+    store.addRemoteFavorite(ref: "github:o/r:/c.md", sourceKind: "github",
+                            sourceKey: "o/r", path: "/c.md", isDirectory: false)      // 3
+    let all = store.favorites().map(\.sortIndex) + store.remoteFavorites().map(\.sortIndex)
+    #expect(Set(all).count == 4)            // all distinct
+    #expect(all.sorted() == [0, 1, 2, 3])   // dense 0..<4
+}
+
 @MainActor @Test func reorderAllFavoritesRewritesSharedSortIndex() throws {
     let (store, container) = try makeLibrary()
     defer { withExtendedLifetime(container) {} }
