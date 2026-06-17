@@ -51,6 +51,7 @@ struct NewConnectionSheet: View {
                 : NSString(string: identityFile.trimmingCharacters(in: .whitespaces)).expandingTildeInPath
         )
         app.connections.addManualHost(host)
+        app.favoritesSync?.scheduleSync()
         app.connectSSH(host)
         dismiss()
     }

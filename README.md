@@ -81,6 +81,15 @@ list. Remote favorites carry a small source badge (⚡ host for SSH, branch icon
 + repo for GitHub); clicking one connects to its source if needed and opens the
 file — or reroots the tree, for a pinned folder. Right-click any remote tree
 row to Add/Remove from Favorites. Favorites persist locally (no server sync).
+
+### Favorites follow you across Macs
+
+Your remote favorites (SSH + GitHub) and manually-added SSH connections sync
+across the Macs signed into your iCloud account — pin a remote file on one,
+find it on the other; remove it anywhere, it's gone everywhere. Local-file
+favorites and your private keys stay on each machine. Requires iCloud Drive
+and a signed build with the iCloud capability; without iCloud, favorites work
+normally and just don't sync.
 - App Sandbox + signed distribution
 
 ## License
