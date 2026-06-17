@@ -1572,10 +1572,20 @@ final class AppState {
         // Reconnecting to the already-active host just brings its tree back.
         if let remote, remote.sourceID == .ssh(alias: host.alias) {
             showRemoteSource()
-            if case .failed = remote.phase {
-                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
-            } else {
+            switch remote.phase {
+            case .ready:
                 onReady?()
+            case .failed:
+                // Clicking a failed source retries (pre-existing behavior).
+                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
+            case .connecting:
+                // A connect is already in flight; don't re-drive it for a plain
+                // re-select. Only when a favorite open is waiting, re-await the
+                // (idempotent) connect so we can fire once it's actually ready —
+                // never before.
+                if let onReady {
+                    Task { await remote.connect(); if remote.phase == .ready { onReady() } }
+                }
             }
             return
         }
@@ -1596,10 +1606,19 @@ final class AppState {
         // Re-picking the already-active repo just brings its tree back.
         if let remote, remote.sourceID == .github(slug: ref.slug) {
             showRemoteSource()
-            if case .failed = remote.phase {
-                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
-            } else {
+            switch remote.phase {
+            case .ready:
                 onReady?()
+            case .failed:
+                // Clicking a failed source retries (pre-existing behavior).
+                Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
+            case .connecting:
+                // A connect is already in flight; don't re-drive it for a plain
+                // re-select. Only when a favorite open is waiting, re-await the
+                // (idempotent) connect so we can fire once it's actually ready.
+                if let onReady {
+                    Task { await remote.connect(); if remote.phase == .ready { onReady() } }
+                }
             }
             return
         }
