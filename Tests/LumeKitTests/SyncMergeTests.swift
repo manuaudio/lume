@@ -108,6 +108,16 @@ struct SyncMergeTests {
         #expect(out.remoteFavorites.map(\.ref) == ["ssh:w:/a"])
     }
 
+    @Test func duplicateIncomingIdentityDoesNotCrash() {
+        // A corrupt/malformed iCloud document could repeat a ref — the merge
+        // must not trap (last record wins).
+        let incoming = doc([fav("ssh:w:/a", path: "/first", at: t1),
+                            fav("ssh:w:/a", path: "/second", at: t2)])
+        let out = SyncMerge.reconcile(baseline: doc(), local: doc(), incoming: incoming, now: now)
+        #expect(out.remoteFavorites.count == 1)
+        #expect(out.remoteFavorites[0].path == "/second")
+    }
+
     @Test func manualHostsReconcileByAlias() {
         let h = ManualHostRecord(alias: "web1", hostname: "10.0.0.5", user: "deploy",
                                  port: 22, identityFile: nil, updatedAt: .distantPast, deleted: false)

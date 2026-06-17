@@ -30,9 +30,15 @@ public enum SyncMerge {
 
     static func reconcileList<R: SyncRecord>(baseline: [R], local: [R],
                                              incoming: [R], now: Date) -> [R] {
-        let b = Dictionary(uniqueKeysWithValues: baseline.map { ($0.identity, $0) })
-        let l = Dictionary(uniqueKeysWithValues: local.map { ($0.identity, $0) })
-        let inc = Dictionary(uniqueKeysWithValues: incoming.map { ($0.identity, $0) })
+        // Last-wins on a duplicate identity rather than trapping: `incoming`
+        // arrives over iCloud and a corrupt/malformed document could repeat a
+        // ref — a merge must never crash the app on bad input.
+        func byIdentity(_ records: [R]) -> [String: R] {
+            records.reduce(into: [:]) { $0[$1.identity] = $1 }
+        }
+        let b = byIdentity(baseline)
+        let l = byIdentity(local)
+        let inc = byIdentity(incoming)
         let ids = Set(b.keys).union(l.keys).union(inc.keys)
 
         var out: [R] = []
@@ -51,7 +57,9 @@ public enum SyncMerge {
                 localEff = b[id]                                 // carry an existing tombstone (or nil)
             }
 
-            // Last-writer-wins between local-effective and incoming.
+            // Last-writer-wins between local-effective and incoming. On an exact
+            // timestamp tie `max` keeps the later element (incoming) — arbitrary
+            // but deterministic; cross-Mac millisecond ties don't occur in practice.
             let winner = [localEff, inc[id]].compactMap { $0 }
                 .max { $0.updatedAt < $1.updatedAt }
             guard let winner else { continue }
