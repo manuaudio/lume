@@ -4,14 +4,10 @@ import Foundation
 /// (`now`), so it is fully unit-testable without iCloud.
 public enum SyncMerge {
     /// Tombstones older than this (relative to the injected `now`) are pruned to
-    /// bound document growth. Production intent is 30 days (2_592_000 s); the
-    /// value here must satisfy the unit-test constraints where `now = t(3_000)`
-    /// and the "recent" live tombstone is at `t(2_000)` while the "ancient" one
-    /// is at `t(0)`: any value in (1_000, 3_000) works. We use `2_001` so the
-    /// tests pass deterministically; callers that need the full 30-day window
-    /// should use the overload with an explicit `tombstoneHorizon:` parameter
-    /// (available for Task 3+ engine integration).
-    public static let tombstoneHorizon: TimeInterval = 2_001
+    /// bound document growth. 30 days gives every still-online peer ample time to
+    /// observe a deletion before its record disappears — shrink this and a peer
+    /// that was offline for the window would resurrect a deleted favorite.
+    public static let tombstoneHorizon: TimeInterval = 30 * 24 * 3600
 
     /// Reconcile this Mac's `local` projection against the last-synced
     /// `baseline` and the `incoming` iCloud document.

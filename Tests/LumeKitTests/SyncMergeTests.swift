@@ -93,7 +93,9 @@ struct SyncMergeTests {
     }
 
     @Test func oldTombstonesArePruned() {
-        let ancient = Date(timeIntervalSince1970: 0)            // ~Jan 1970, far past horizon
+        // now is t(3_000); the horizon is 30 days, so the tombstone must be
+        // more than 30 days BEFORE now to prune (age > 2_592_000 s).
+        let ancient = Date(timeIntervalSince1970: 3_000 - (31 * 24 * 3600))
         let b = doc([fav("ssh:w:/a", at: ancient, deleted: true)])
         let out = SyncMerge.reconcile(baseline: b, local: doc(), incoming: doc(), now: now)
         #expect(out.remoteFavorites.isEmpty)                    // pruned
