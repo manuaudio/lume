@@ -1579,10 +1579,11 @@ final class AppState {
                 // Clicking a failed source retries (pre-existing behavior).
                 Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
             case .connecting:
-                // A connect is already in flight; don't re-drive it for a plain
-                // re-select. Only when a favorite open is waiting, re-await the
-                // (idempotent) connect so we can fire once it's actually ready —
-                // never before.
+                // A connect is already in flight. For a plain re-select, leave it
+                // alone. When a favorite open is waiting, drive a second connect
+                // (cheap — SSH reuses the established ControlMaster) and fire when
+                // it reaches ready; the single-fire callback means the in-flight
+                // connect can't double-open, and we never fire before ready.
                 if let onReady {
                     Task { await remote.connect(); if remote.phase == .ready { onReady() } }
                 }
@@ -1613,9 +1614,11 @@ final class AppState {
                 // Clicking a failed source retries (pre-existing behavior).
                 Task { await remote.connect(); if remote.phase == .ready { onReady?() } }
             case .connecting:
-                // A connect is already in flight; don't re-drive it for a plain
-                // re-select. Only when a favorite open is waiting, re-await the
-                // (idempotent) connect so we can fire once it's actually ready.
+                // A connect is already in flight. For a plain re-select, leave it
+                // alone. When a favorite open is waiting, drive a second connect
+                // (cheap — gh calls are stateless) and fire when it reaches ready;
+                // the single-fire callback means the in-flight connect can't
+                // double-open, and we never fire before ready.
                 if let onReady {
                     Task { await remote.connect(); if remote.phase == .ready { onReady() } }
                 }
