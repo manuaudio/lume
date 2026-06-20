@@ -129,7 +129,9 @@ private struct DetailView: View {
 
     var body: some View {
         Group {
-            if app.activeScan != nil {
+            if app.showingConfigRadar {
+                ConfigTriageView()
+            } else if app.activeScan != nil {
                 ScanTriageView()
             } else if app.activeBundle != nil {
                 BundleView()

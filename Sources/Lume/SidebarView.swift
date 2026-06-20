@@ -13,6 +13,7 @@ struct SidebarView: View {
                 RemoteTreeView()
             } else if app.rootURL != nil || !app.scans.isEmpty {
                 List {
+                    ConfigRadarRegion()
                     ScansRegion()
                     BundlesRegion()
                     ActivityRegion()
