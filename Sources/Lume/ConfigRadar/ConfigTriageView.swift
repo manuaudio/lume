@@ -85,16 +85,43 @@ struct InSyncRowView: View {
     }
 }
 
-/// Minimal placeholder — Task 7 replaces this with the full drift band
-/// (expandable diff). For now the row shows severity dot + title only.
 struct DriftRowView: View {
+    @Environment(AppState.self) private var app
     let finding: ConfigFinding
+
+    private var isExpanded: Bool { app.expandedFindingKeys.contains(finding.group.key) }
+
     var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(ConfigRadarPalette.drift).frame(width: 7, height: 7)
-            Text(finding.group.key).font(.system(.body, design: .monospaced))
-            Spacer()
-            Text("\(finding.group.copies.count) copies differ").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                if isExpanded { app.expandedFindingKeys.remove(finding.group.key) }
+                else { app.expandedFindingKeys.insert(finding.group.key) }
+            } label: {
+                HStack(spacing: 8) {
+                    Circle().fill(ConfigRadarPalette.drift).frame(width: 7, height: 7)
+                    Text("DRIFT")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(ConfigRadarPalette.drift)
+                    Text(finding.group.key)
+                        .font(.system(.body, design: .monospaced))
+                    Spacer()
+                    Text("\(finding.group.copies.count) copies differ")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                // One band per adjacent pair of copies (first copy is the anchor).
+                ForEach(Array(finding.group.copies.dropFirst().enumerated()), id: \.offset) { _, copy in
+                    DriftBandView(left: finding.group.copies[0], right: copy)
+                }
+            }
         }
+        .padding(.vertical, 2)
     }
 }
