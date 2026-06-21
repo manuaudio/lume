@@ -9,6 +9,19 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             SourceSwitcherView()
             Divider()
+            // Persistent Config Radar entry: reachable in every sidebar state
+            // (remote tree, local list, and cold start), not just the local list.
+            Button {
+                app.startConfigRadar()
+            } label: {
+                Label("Config Radar", systemImage: "dot.radiowaves.left.and.right")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            Divider()
             if app.showingRemote, app.remote != nil {
                 RemoteTreeView()
             } else if app.rootURL != nil || !app.scans.isEmpty {

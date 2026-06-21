@@ -96,6 +96,134 @@ final class AppState {
     /// Cross-machine favorites sync (iCloud); nil until the library attaches.
     private(set) var favoritesSync: FavoritesSyncEngine?
 
+    // MARK: - Config Radar
+
+    /// Whether the detail pane shows the Config Radar triage surface.
+    private(set) var showingConfigRadar = false
+    /// True while a radar scan is in flight.
+    private(set) var isScanningConfig = false
+    /// Triage results, sorted drift → lone → inSync.
+    private(set) var configFindings: [ConfigFinding] = []
+    /// Group keys whose drift band is expanded in the triage list.
+    var expandedFindingKeys: Set<String> = []
+
+    /// Enter the radar surface and kick off a scan.
+    func startConfigRadar() {
+        clearDocumentSelection()
+        if activeScan != nil { closeScan() }
+        if activeBundle != nil { closeBundle() }
+        showingConfigRadar = true
+        Task { await runConfigRadar() }
+    }
+
+    func closeConfigRadar() {
+        showingConfigRadar = false
+    }
+
+    /// Scan every active source, group copies, classify drift.
+    func runConfigRadar() async {
+        isScanningConfig = true
+        defer { isScanningConfig = false }
+
+        var files: [ConfigFile] = []
+        for (source, roots) in configSources() {
+            files += await ConfigScanner.scan(source: source, roots: roots)
+        }
+        let groups = ConfigInventory.group(files)
+
+        var findings: [ConfigFinding] = []
+        for group in groups {
+            // Resolve the sources this group needs up front so the read closure
+            // captures only Sendable values (a [SourceID: any FileSource] map),
+            // never `self` — passing a main-actor-isolated closure into the
+            // nonisolated `analyze` would violate Swift 6 strict concurrency.
+            let sources = sourceMap(for: group.copies.map(\.ref.sourceID))
+            let read: @Sendable (ResourceRef) async throws -> String = { ref in
+                guard let source = sources[ref.sourceID] else {
+                    throw CocoaError(.fileReadUnknown)
+                }
+                return try await source.read(ref.path)
+            }
+            let finding = await DriftAnalyzer.analyze(group, read: read)
+            findings.append(finding)
+        }
+        configFindings = findings.sorted { rank($0.severity) < rank($1.severity) }
+    }
+
+    private func rank(_ severity: ConfigFinding.Severity) -> Int {
+        switch severity {
+        case .drift:  return 0
+        case .lone:   return 1
+        case .inSync: return 2
+        }
+    }
+
+    /// The (source, scan-roots) pairs to sweep: always local (when a folder is
+    /// open) plus the connected remote (when ready).
+    private func configSources() -> [(any FileSource, [String])] {
+        var out: [(any FileSource, [String])] = []
+        if let root = rootURL {
+            out.append((LocalFileSource(), [root.path]))
+        }
+        if let remote, remote.phase == .ready {
+            out.append((remote.source, [remote.rootPath]))
+        }
+        return out
+    }
+
+    /// A Sendable snapshot resolving each `SourceID` to its live `FileSource`,
+    /// so an off-actor read closure can resolve sources without touching `self`.
+    private func sourceMap(for ids: [SourceID]) -> [SourceID: any FileSource] {
+        var map: [SourceID: any FileSource] = [:]
+        for id in ids where map[id] == nil { map[id] = source(for: id) }
+        return map
+    }
+
+    /// Resolve a `SourceID` to a live `FileSource`. Local is stateless; remote
+    /// is the single connected session when its id matches.
+    func source(for id: SourceID) -> any FileSource {
+        switch id {
+        case .local:
+            return LocalFileSource()
+        default:
+            if let remote, remote.sourceID == id { return remote.source }
+            return LocalFileSource()
+        }
+    }
+
+    /// Open a config file from the triage list in the normal viewer.
+    func openConfig(_ ref: ResourceRef) {
+        showingConfigRadar = false
+        switch ref.sourceID {
+        case .local:
+            choose(URL(fileURLWithPath: ref.path))
+        default:
+            chooseRemote(ref.path)
+        }
+    }
+
+    /// Push the canonical copy's contents over a target copy, then re-scan.
+    func reconcile(from canonical: ResourceRef, to target: ResourceRef) async {
+        do {
+            let text = try await source(for: canonical.sourceID).read(canonical.path)
+            _ = try? await source(for: target.sourceID).read(target.path)  // populate target sha for GitHub writes
+            try await source(for: target.sourceID).write(text, to: target.path)
+            showNotice("Pushed \(canonical.name) → \(displayName(for: target.sourceID))")
+            await runConfigRadar()
+        } catch {
+            errorMessage = "Couldn't reconcile \(canonical.name): \(error.localizedDescription)"
+        }
+    }
+
+    /// Short, user-facing label for a source.
+    func displayName(for id: SourceID) -> String {
+        switch id {
+        case .local:              return "Local"
+        case .ssh(let alias):     return alias
+        case .github(let slug):   return slug
+        }
+    }
+
     // MARK: - Multi-selection (Finder-style)
 
     /// The set of selected sidebar row ids (across all regions).
@@ -1688,6 +1816,7 @@ final class AppState {
         loadTask?.cancel()
         selectedURL = nil
         selectedRemotePath = nil
+        showingConfigRadar = false
         documentText = nil
         loadedText = nil
         isDirty = false
