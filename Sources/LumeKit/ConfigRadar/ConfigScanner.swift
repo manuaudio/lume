@@ -47,7 +47,7 @@ public enum ConfigScanner {
             } else if PatternMatcher.matchesAny(filename: child.name, patterns: patterns) {
                 guard seen.insert(child.ref.path).inserted else { continue }
                 let size = try? await source.stat(child.ref.path).size
-                out.append(ConfigFile(ref: child.ref, size: size ?? nil))
+                out.append(ConfigFile(ref: child.ref, size: size))
             }
         }
     }

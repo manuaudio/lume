@@ -206,8 +206,9 @@ final class AppState {
     func reconcile(from canonical: ResourceRef, to target: ResourceRef) async {
         do {
             let text = try await source(for: canonical.sourceID).read(canonical.path)
+            _ = try? await source(for: target.sourceID).read(target.path)  // populate target sha for GitHub writes
             try await source(for: target.sourceID).write(text, to: target.path)
-            notice = "Pushed \(canonical.name) → \(displayName(for: target.sourceID))"
+            showNotice("Pushed \(canonical.name) → \(displayName(for: target.sourceID))")
             await runConfigRadar()
         } catch {
             errorMessage = "Couldn't reconcile \(canonical.name): \(error.localizedDescription)"
@@ -1815,6 +1816,7 @@ final class AppState {
         loadTask?.cancel()
         selectedURL = nil
         selectedRemotePath = nil
+        showingConfigRadar = false
         documentText = nil
         loadedText = nil
         isDirty = false
