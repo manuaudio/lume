@@ -10,13 +10,14 @@ public enum ConfigScanner {
     public static func scan(
         source: any FileSource,
         roots: [String],
-        patterns: [String] = ConfigPatterns.aiConfig
+        patterns: [String] = ConfigPatterns.aiConfig,
+        pathPatterns: [String] = ConfigPatterns.aiConfigPaths
     ) async -> [ConfigFile] {
         var out: [ConfigFile] = []
         var seen = Set<String>()
         for root in roots {
             await sweep(source: source, path: root, patterns: patterns,
-                        depth: 0, into: &out, seen: &seen)
+                        pathPatterns: pathPatterns, depth: 0, into: &out, seen: &seen)
         }
         return out.sorted {
             $0.ref.path.localizedStandardCompare($1.ref.path) == .orderedAscending
@@ -27,6 +28,7 @@ public enum ConfigScanner {
         source: any FileSource,
         path: String,
         patterns: [String],
+        pathPatterns: [String],
         depth: Int,
         into out: inout [ConfigFile],
         seen: inout Set<String>
@@ -43,8 +45,9 @@ public enum ConfigScanner {
             if child.isDirectory {
                 if ScanEngine.ignoredDirectories.contains(child.name) { continue }
                 await sweep(source: source, path: child.ref.path, patterns: patterns,
-                            depth: depth + 1, into: &out, seen: &seen)
-            } else if PatternMatcher.matchesAny(filename: child.name, patterns: patterns) {
+                            pathPatterns: pathPatterns, depth: depth + 1, into: &out, seen: &seen)
+            } else if PatternMatcher.matchesAny(filename: child.name, patterns: patterns)
+                        || ConfigPathMatcher.matchesAny(path: child.ref.path, patterns: pathPatterns) {
                 guard seen.insert(child.ref.path).inserted else { continue }
                 let size = try? await source.stat(child.ref.path).size
                 out.append(ConfigFile(ref: child.ref, size: size))
