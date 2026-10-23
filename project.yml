@@ -6,6 +6,8 @@ options:
   createIntermediateGroups: true
 settings:
   base:
+    ARCHS: arm64   # Apple silicon only (Manu 2026-10-22: every macOS app ships arm64 alone)
+    ONLY_ACTIVE_ARCH: "NO"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
